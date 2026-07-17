@@ -142,14 +142,12 @@ int main(int argc, char **argv) {
     /* default: look next to the binary or in CWD */
     const char *wm_source = "src/wm.c";
 
-    /* ---- compiler context ---- */
-    rewm_compiler_t *rc = rewm_compiler_create();
-    if (!rc) {
-        fprintf(stderr, "rewm: failed to create compiler\n");
-        wm_cleanup(&state);
-        return 1;
-    }
-    rewm_set_optimize_level(rc, 3);
+    typedef int (*wm_entry_fn)(WMState *);
+
+    /* ---- compiler context / currently-live wm_entry ---- */
+    rewm_compiler_t *rc = NULL;
+    wm_entry_fn wm_entry = NULL;
+    int had_success = 0; /* has any build ever succeeded yet? */
 
     /* ---- file mtime tracking ---- */
     long wm_mtime = 0;
@@ -158,29 +156,41 @@ int main(int argc, char **argv) {
     /* ---- main reload loop ---- */
     while (state.running && !sig_caught) {
         if (first || file_changed(wm_source, &wm_mtime)) {
-            if (!first) {
-                fprintf(stderr, "rewm: %s changed, recompiling...\n", wm_source);
-                /* tear down MIR context completely and re-create */
-                rewm_compiler_destroy(rc);
-                rc = rewm_compiler_create();
-                if (!rc) break;
-                rewm_set_optimize_level(rc, 3);
-                state.reload_count++;
-            }
             first = 0;
+            fprintf(stderr, "rewm: (re)compiling %s...\n", wm_source);
 
-            /* compile wm.c and get wm_entry pointer */
-            typedef int (*wm_entry_fn)(WMState *);
-            wm_entry_fn wm_entry = (wm_entry_fn)
-                rewm_compile_and_get(rc, wm_source, "wm_entry");
+            /* Build the candidate in a brand-new context. The old
+             * context (and its still-valid wm_entry) is left alone
+             * until we know the new one actually works. */
+            rewm_compiler_t *new_rc = rewm_compiler_create();
+            wm_entry_fn new_entry = NULL;
+            if (new_rc) {
+                rewm_set_optimize_level(new_rc, 3);
+                new_entry = (wm_entry_fn)
+                    rewm_compile_and_get(new_rc, wm_source, "wm_entry");
+            }
 
-            if (!wm_entry) {
-                fprintf(stderr, "rewm: failed to compile %s\n", wm_source);
-                continue;
+            if (!new_entry) {
+                fprintf(stderr, "rewm: compile failed, keeping previous version\n");
+                if (new_rc) rewm_compiler_destroy(new_rc);
+                if (!wm_entry) {
+                    /* never had a working build to fall back to yet */
+                    usleep(200000); /* 200ms, avoid busy-spinning on a broken file */
+                    continue;
+                }
+                /* fall through and re-run the still-live old wm_entry */
+            } else {
+                /* success: swap in the new build, *then* tear down the old */
+                if (rc) rewm_compiler_destroy(rc);
+                rc = new_rc;
+                wm_entry = new_entry;
+                if (had_success) state.reload_count++;
+                had_success = 1;
+                fprintf(stderr, "rewm: compiled OK (reload #%d)\n", state.reload_count);
             }
 
             /* call into JIT-compiled WM logic */
-            fprintf(stderr, "rewm: entering wm (reload #%d)\n", state.reload_count);
+            fprintf(stderr, "rewm: entering wm\n");
             int status = wm_entry(&state);
             fprintf(stderr, "rewm: wm returned %d\n", status);
 
@@ -195,7 +205,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    rewm_compiler_destroy(rc);
+    if (rc) rewm_compiler_destroy(rc);
     wm_cleanup(&state);
     fprintf(stderr, "rewm: bye\n");
     return 0;
