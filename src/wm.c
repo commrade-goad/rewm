@@ -127,6 +127,14 @@ static void    cleanup(WMState *s);
 static Monitor *recttomon(WMState *s, int x, int y, int w, int h);
 static long    getstate(WMState *s, Window w);
 static void    updatenumlockmask(WMState *s);
+static int     updategeom(WMState *s);
+static Monitor *createmon(WMState *s);
+static void    cleanupmon(WMState *s, Monitor *m);
+static Monitor *dirtomon(WMState *s, int dir);
+static void    focusmon(WMState *s, const Arg *arg);
+static void    tagmon(WMState *s, const Arg *arg);
+static void    updatebarpos(WMState *s, Monitor *m);
+static void    resizebarwin(WMState *s, Monitor *m);
 
 /* ---- key action funcs (bound in `keys[]` below) ------------------------- */
 static void togglebar(WMState *s, const Arg *arg);
@@ -150,6 +158,8 @@ static void movemouse(WMState *s, const Arg *arg);
 static void resizemouse(WMState *s, const Arg *arg);
 static void quit(WMState *s, const Arg *arg);
 static void reload_wm(WMState *s, const Arg *arg);
+static void focusmon(WMState *s, const Arg *arg);
+static void tagmon(WMState *s, const Arg *arg);
 
 /* =========================================================================
  *  Layouts
@@ -204,6 +214,10 @@ static Key keys[] = {
     { MODKEY,                XK_minus,  setgaps,        {.i = -1} },
     { MODKEY,                XK_equal,  setgaps,        {.i = +1} },
     { MODKEY|ShiftMask,      XK_equal,  setgapsabs,     {.i = DEFAULT_GAP} },
+    { MODKEY,                XK_comma,  focusmon,       {.i = -1} },
+    { MODKEY,                XK_period, focusmon,       {.i = +1} },
+    { MODKEY|ShiftMask,      XK_comma,  tagmon,         {.i = -1} },
+    { MODKEY|ShiftMask,      XK_period, tagmon,         {.i = +1} },
     TAGKEYS(XK_1, 0), TAGKEYS(XK_2, 1), TAGKEYS(XK_3, 2),
     TAGKEYS(XK_4, 3), TAGKEYS(XK_5, 4), TAGKEYS(XK_6, 5),
     TAGKEYS(XK_7, 6), TAGKEYS(XK_8, 7), TAGKEYS(XK_9, 8),
@@ -700,13 +714,11 @@ static void detachstack(WMState *s, Client *c) {
 }
 
 static void syncglobalclients(WMState *s) {
-    /* single-monitor mirror, kept for _NET_CLIENT_LIST + external readers */
-    s->clients = s->mons ? s->mons->clients : NULL;
-    s->stack = s->mons ? s->mons->stack : NULL;
     XDeleteProperty(s->dpy, s->root, s->net_client_list);
-    for (Client *c = s->clients; c; c = c->next)
-        XChangeProperty(s->dpy, s->root, s->net_client_list, XA_WINDOW, 32,
-                        PropModeAppend, (unsigned char *)&c->win, 1);
+    for (Monitor *m = s->mons; m; m = m->next)
+        for (Client *c = m->clients; c; c = c->next)
+            XChangeProperty(s->dpy, s->root, s->net_client_list, XA_WINDOW, 32,
+                            PropModeAppend, (unsigned char *)&c->win, 1);
 }
 
 static Client *nexttiled(Client *c) {
@@ -791,7 +803,10 @@ static void applyrules(WMState *s, Client *c) {
     }
     if (ch.res_class) XFree(ch.res_class);
     if (ch.res_name) XFree(ch.res_name);
-    c->tags = (c->tags & TAGMASK) ? (c->tags & TAGMASK) : c->mon->tagset[c->mon->seltags];
+    
+    if (c->mon) {
+        c->tags = (c->tags & TAGMASK) ? (c->tags & TAGMASK) : c->mon->tagset[c->mon->seltags];
+    }
 }
 
 static Client *createclient(WMState *s, Window w, XWindowAttributes *wa) {
@@ -1001,16 +1016,11 @@ static void configurerequest(WMState *s, XEvent *e) {
 static void configurenotify(WMState *s, XEvent *e) {
     XConfigureEvent *ev = &e->xconfigure;
     if (ev->window != s->root) return;
+    int dirty = (s->sw != ev->width || s->sh != ev->height);
     s->sw = ev->width;
     s->sh = ev->height;
-    if (s->selmon) {
-        s->selmon->mw = s->selmon->ww = ev->width;
-        s->selmon->mh = ev->height;
-        updatebarpos(s, s->selmon);
-        XMoveResizeWindow(s->dpy, s->selmon->barwin, s->selmon->mx,
-                          s->selmon->topbar ? s->selmon->my : s->selmon->my + s->selmon->wh,
-                          (unsigned)s->selmon->mw, (unsigned)s->barheight);
-        arrange(s, s->selmon);
+    if (updategeom(s) || dirty) {
+        arrange(s, NULL);
     }
 }
 
@@ -1474,6 +1484,192 @@ static void reload_wm(WMState *s, const Arg *arg) {
 }
 
 /* =========================================================================
+ *  Multi-monitor support
+ * ========================================================================= */
+static int isuniquegeom(XineramaScreenInfo *unique, size_t n, XineramaScreenInfo *info) {
+    while (n--)
+        if (unique[n].x_org == info->x_org && unique[n].y_org == info->y_org &&
+            unique[n].width == info->width && unique[n].height == info->height)
+            return 0;
+    return 1;
+}
+
+static int updategeom(WMState *s) {
+    int dirty = 0;
+
+    if (XineramaIsActive(s->dpy)) {
+        int n;
+        XineramaScreenInfo *info = XineramaQueryScreens(s->dpy, &n);
+        if (info) {
+            XineramaScreenInfo *unique = malloc(n * sizeof(*unique));
+            if (unique) {
+                size_t nn = 0;
+                for (int i = 0; i < n; i++)
+                    if (isuniquegeom(unique, nn, &info[i]))
+                        unique[nn++] = info[i];
+                XFree(info);
+
+                Monitor *m = s->mons;
+                for (size_t i = 0; i < nn; i++) {
+                    if (!m) {
+                        m = createmon(s);
+                    }
+                    if (m->mx != unique[i].x_org || m->my != unique[i].y_org ||
+                        m->mw != unique[i].width || m->mh != unique[i].height) {
+                        dirty = 1;
+                        m->mx = m->wx = unique[i].x_org;
+                        m->my = m->wy = unique[i].y_org;
+                        m->mw = unique[i].width;
+                        m->mh = unique[i].height;
+                        updatebarpos(s, m);
+                        resizebarwin(s, m);
+                    }
+                    m = m->next;
+                }
+                free(unique);
+            } else {
+                XFree(info);
+            }
+        }
+    } else {
+        if (!s->mons) {
+            s->mons = createmon(s);
+        }
+        Monitor *m = s->mons;
+        if (m->mw != s->sw || m->mh != s->sh) {
+            dirty = 1;
+            m->mw = m->ww = s->sw;
+            m->mh = m->wh = s->sh;
+            updatebarpos(s, m);
+            resizebarwin(s, m);
+        }
+    }
+
+    if (dirty) {
+        s->selmon = s->mons;
+    }
+    
+    if (!s->selmon) {
+        s->selmon = s->mons;
+    }
+
+    return dirty;
+}
+
+static Monitor *createmon(WMState *s) {
+    Monitor *m = calloc(1, sizeof(*m));
+    if (!m) return NULL;
+
+    m->num = 0;
+    m->mfact = DEFAULT_MFACT;
+    m->nmaster = DEFAULT_NMASTER;
+    m->gappx = DEFAULT_GAP;
+    m->showbar = 1;
+    m->topbar = 1;
+    m->sellt = 0;
+    m->tagset[0] = m->tagset[1] = 1;
+    strncpy(m->ltsymbol, layouts[0].symbol, sizeof(m->ltsymbol) - 1);
+
+    m->mx = 0;
+    m->my = 0;
+    m->mw = s->sw;
+    m->mh = s->sh;
+    m->wx = m->mx;
+    m->wy = m->my;
+    m->ww = m->mw;
+    m->wh = m->mh;
+
+    updatebarpos(s, m);
+
+    XSetWindowAttributes swa;
+    swa.override_redirect = True;
+    swa.background_pixmap = ParentRelative;
+    swa.event_mask = ExposureMask | ButtonPressMask | SubstructureNotifyMask;
+    m->barwin = XCreateWindow(s->dpy, s->root, m->mx, m->topbar ? m->my : m->my + m->wh,
+                              (unsigned)m->mw, (unsigned)s->barheight, 0, DefaultDepth(s->dpy, s->screen),
+                              CopyFromParent, DefaultVisual(s->dpy, s->screen),
+                              CWOverrideRedirect | CWBackPixmap | CWEventMask, &swa);
+    XDefineCursor(s->dpy, m->barwin, s->cur_normal);
+    XMapRaised(s->dpy, m->barwin);
+    XClassHint ch = { "rewm", "rewm" };
+    XSetClassHint(s->dpy, m->barwin, &ch);
+
+    m->next = NULL;
+    if (s->mons) {
+        Monitor *last = s->mons;
+        while (last->next) last = last->next;
+        last->next = m;
+        m->num = last->num + 1;
+    } else {
+        s->mons = m;
+    }
+
+    return m;
+}
+
+static void cleanupmon(WMState *s, Monitor *m) {
+    if (!m) return;
+
+    if (m->barwin) {
+        XUnmapWindow(s->dpy, m->barwin);
+        XDestroyWindow(s->dpy, m->barwin);
+        m->barwin = 0;
+    }
+
+    if (m == s->mons) {
+        s->mons = m->next;
+    } else {
+        Monitor *prev = s->mons;
+        while (prev && prev->next != m) prev = prev->next;
+        if (prev) prev->next = m->next;
+    }
+
+    free(m);
+}
+
+static Monitor *dirtomon(WMState *s, int dir) {
+    Monitor *m;
+
+    if (dir > 0) {
+        if (!(m = s->selmon->next))
+            m = s->mons;
+    } else {
+        if (s->selmon == s->mons)
+            for (m = s->mons; m->next; m = m->next);
+        else
+            for (m = s->mons; m->next != s->selmon; m = m->next);
+    }
+    return m;
+}
+
+static void focusmon(WMState *s, const Arg *arg) {
+    Monitor *m = dirtomon(s, arg->i);
+    if (m == s->selmon) return;
+    unfocus(s, s->sel, 0);
+    s->selmon = m;
+    focus(s, NULL);
+}
+
+static void tagmon(WMState *s, const Arg *arg) {
+    if (!s->sel) return;
+    Monitor *m = dirtomon(s, arg->i);
+    if (m == s->sel->mon) return;
+    detach(s, s->sel);
+    detachstack(s, s->sel);
+    s->sel->mon = m;
+    attach(s, s->sel);
+    attachstack(s, s->sel);
+    focus(s, NULL);
+    arrange(s, NULL);
+}
+
+static void resizebarwin(WMState *s, Monitor *m) {
+    if (!m || !m->barwin) return;
+    XMoveResizeWindow(s->dpy, m->barwin, m->mx, m->topbar ? m->my : m->my + m->wh,
+                      (unsigned)m->mw, (unsigned)s->barheight);
+}
+
+/* =========================================================================
  *  One-time setup (survives hot reloads via s->initialized)
  * ========================================================================= */
 static void scanwindows(WMState *s) {
@@ -1569,12 +1765,8 @@ static void cleanup(WMState *s) {
         free(c);
     }
 
-    for (Monitor *m = s->mons; m; m = m->next) {
-        if (m->barwin) {
-            XUnmapWindow(s->dpy, m->barwin);
-            XDestroyWindow(s->dpy, m->barwin);
-            m->barwin = 0;
-        }
+    while (s->mons) {
+        cleanupmon(s, s->mons);
     }
 
     if (s->wmcheckwin) {
@@ -1647,21 +1839,7 @@ int wm_entry(WMState *s) {
         setupewmh(s);
         strncpy(s->statustext, "rewm", sizeof(s->statustext) - 1);
 
-        for (Monitor *m = s->mons; m; m = m->next) {
-            updatebarpos(s, m);
-            XSetWindowAttributes swa;
-            swa.override_redirect = True;
-            swa.background_pixmap = ParentRelative;
-            swa.event_mask = ExposureMask | ButtonPressMask | SubstructureNotifyMask;
-            m->barwin = XCreateWindow(s->dpy, s->root, m->mx, m->topbar ? m->my : m->my + m->wh,
-                                      (unsigned)m->mw, (unsigned)s->barheight, 0, DefaultDepth(s->dpy, s->screen),
-                                      CopyFromParent, DefaultVisual(s->dpy, s->screen),
-                                      CWOverrideRedirect | CWBackPixmap | CWEventMask, &swa);
-            XDefineCursor(s->dpy, m->barwin, s->cur_normal);
-            XMapRaised(s->dpy, m->barwin);
-            XClassHint ch = { "rewm", "rewm" };
-            XSetClassHint(s->dpy, m->barwin, &ch);
-        }
+        updategeom(s);
 
         scanwindows(s);
 

@@ -9,6 +9,7 @@
 
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
+#include <X11/extensions/Xinerama.h>
 
 #define LENGTH(x)       (sizeof(x) / sizeof(x[0]))
 #define MAX(a, b)       ((a) > (b) ? (a) : (b))

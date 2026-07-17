@@ -64,23 +64,6 @@ static Display *x11_init(WMState *s) {
     /* permanent handler: log and shrug off everything else */
     XSetErrorHandler(xerror);
 
-    /* create a single monitor covering the whole screen */
-    Monitor *m = calloc(1, sizeof(*m));
-    if (!m) { XCloseDisplay(dpy); return NULL; }
-    m->num  = 0;
-    m->mx   = 0;  m->my   = 0;
-    m->mw   = DisplayWidth(dpy, s->screen);
-    m->mh   = DisplayHeight(dpy, s->screen);
-    m->wx   = 0;  m->wy   = 0;
-    m->ww   = m->mw;
-    m->wh   = m->mh;
-    m->tagset[0] = m->tagset[1] = 1;
-    m->seltags = 0;
-    m->sellt   = 0;
-
-    s->mons   = m;
-    s->selmon = m;
-
     /* geometry defaults */
     s->borderpx = 2;
     s->snap     = 32;
@@ -112,7 +95,7 @@ static Display *x11_init(WMState *s) {
     XUngrabServer(dpy);
 
     XSync(dpy, False);
-    fprintf(stderr, "rewm: X11 init done (%dx%d)\n", m->mw, m->mh);
+    fprintf(stderr, "rewm: X11 init done (%dx%d)\n", DisplayWidth(dpy, s->screen), DisplayHeight(dpy, s->screen));
     return dpy;
 }
 
