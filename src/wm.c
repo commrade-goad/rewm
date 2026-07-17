@@ -55,6 +55,7 @@
 #define DEFAULT_RESIZEHINTS  1
 #define DEFAULT_LOCKFULLSCREEN 1
 #define DEFAULT_REFRESHRATE 0
+#define TITLE_MAX_CHARS    64    /* max UTF-8 codepoints of client title in bar */
 
 static const char *tagnames[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
 
@@ -193,10 +194,16 @@ static Layout layouts[] = {
 
 static const char *termcmd[]  = { TERMINAL, NULL };
 static const char *dmenucmd[] = { LAUNCHER, NULL };
+static const char *zoomcmd[]  = { "boomer", NULL };
+static const char *editcmd[]  = { "emacs", NULL };
+static const char *webcmd[]   = { "firefox-bin", NULL };
 
 static Key keys[] = {
     { MODKEY,                XK_Return, spawn,          {.v = termcmd} },
     { MODKEY,                XK_p,      spawn,          {.v = dmenucmd} },
+    { MODKEY,                XK_e,      spawn,          {.v = editcmd} },
+    { MODKEY,                XK_w,      spawn,          {.v = webcmd} },
+    { MODKEY|ShiftMask,      XK_z,      spawn,          {.v = zoomcmd} },
     { MODKEY|ShiftMask,      XK_q,      killclient,     {0} },
     { MODKEY|ShiftMask,      XK_e,      quit,           {0} },
     { MODKEY|ShiftMask,      XK_r,      reload_wm,      {0} },
@@ -373,8 +380,53 @@ static void updatebarpos(WMState *s, Monitor *m) {
 
 static void drawrect(WMState *s, int x, int y, int w, int h, unsigned long pixel, int fill) {
     XSetForeground(s->dpy, s->gc, pixel);
-    if (fill) XFillRectangle(s->dpy, s->drawable, s->gc, x, y, (unsigned)w, (unsigned)h);
-    else      XDrawRectangle(s->dpy, s->drawable, s->gc, x, y, (unsigned)(w - 1), (unsigned)(h - 1));
+    if (fill) {
+	XFillRectangle(s->dpy, s->drawable, s->gc, x, y, (unsigned)w, (unsigned)h);
+    } else {
+	/* Draw 4 sides with XFillRectangle instead of XDrawRectangle(…, w-1, h-1).
+	 * XDrawRectangle's corner rendering drops the bottom-right pixel on
+	 * some drivers/servers; 4 side fills are unambiguous and cost is
+	 * negligible (bar redraws a few times/sec). */
+	XFillRectangle(s->dpy, s->drawable, s->gc, x, y, (unsigned)w, 1);
+	XFillRectangle(s->dpy, s->drawable, s->gc, x, y + h - 1, (unsigned)w, 1);
+	XFillRectangle(s->dpy, s->drawable, s->gc, x, y, 1, (unsigned)h);
+	XFillRectangle(s->dpy, s->drawable, s->gc, x + w - 1, y, 1, (unsigned)h);
+    }
+}
+
+/* UTF-8 helpers for title truncation */
+static int utf8charlen(const char *p) {
+    unsigned char c = (unsigned char)*p;
+    if (!c) return 0;
+    if (c < 0x80) return 1;
+    if (c < 0xC0) return 1;
+    if (c < 0xE0) return 2;
+    if (c < 0xF0) return 3;
+    return 4;
+}
+
+static int utf8strlen(const char *s) {
+    int n = 0;
+    while (*s) { s += utf8charlen(s); n++; }
+    return n;
+}
+
+static void truncate_utf8(const char *src, char *dst, size_t dstsize, int max_cp) {
+    int cp = 0;
+    size_t pos = 0;
+    while (src[pos] && cp < max_cp) {
+	int clen = utf8charlen(&src[pos]);
+	if (pos + (size_t)clen >= dstsize) break;
+	for (int i = 0; i < clen; i++) dst[pos + i] = src[pos + i];
+	pos += (size_t)clen;
+	cp++;
+    }
+    if (src[pos]) {
+	const char *e = "\xe2\x80\xa6"; /* … (U+2026, UTF-8) */
+	if (pos + 3 < dstsize) { dst[pos++] = e[0]; dst[pos++] = e[1]; dst[pos++] = e[2]; }
+    }
+    if (pos < dstsize) dst[pos] = '\0';
+    else dst[dstsize - 1] = '\0';
 }
 
 static void drawtext(WMState *s, int x, int y, unsigned long fg, unsigned long bg,
@@ -408,7 +460,7 @@ static void drawbar(WMState *s, Monitor *m) {
 	drawtext(s, x, 0, s->col[scheme][ColFg], s->col[scheme][ColBg],
 		&s->xftcol[scheme][ColFg], w, s->barheight, tagnames[i]);
 	if (occ & (1 << i))
-	    drawrect(s, x + 1, 1, 3, 3,
+	    drawrect(s, x + 2, 2, 4, 4,
 		    (urg & (1 << i)) ? s->col[SchemeSel][ColBorder] : s->col[scheme][ColFg], 1);
 	x += w;
     }
@@ -429,9 +481,17 @@ static void drawbar(WMState *s, Monitor *m) {
     /* selected window title fills the middle */
     int tw = mid - x;
     if (tw > 0) {
-	const char *title = (s->sel && s->sel->mon == m) ? s->sel->name : "";
+	Client *sel = s->sel;
+	const char *raw = (sel && sel->mon == m) ? sel->name : "";
+	char truncated[256];
+	truncate_utf8(raw, truncated, sizeof(truncated), TITLE_MAX_CHARS);
 	drawtext(s, x, 0, s->col[SchemeNorm][ColFg], s->col[SchemeNorm][ColBg],
-		&s->xftcol[SchemeNorm][ColFg], tw, s->barheight, title);
+		&s->xftcol[SchemeNorm][ColFg], tw, s->barheight, truncated);
+	if (sel && sel->mon == m && sel->isfloating) {
+	   drawrect(s, x + 1, 2, 4, 4, s->col[SchemeNorm][ColFg], 1);
+	   // x += 6;
+	   tw = mid - x;
+	}
     }
 
     XCopyArea(s->dpy, s->drawable, m->barwin, s->gc, 0, 0,
