@@ -143,6 +143,7 @@ struct WMState {
     /* runtime flags */
     int running;
     int initialized;            /* one-time setup guard, survives reloads */
+    volatile int sig_caught;    /* set by signal handler, checked by event loop */
 
     /* last reload status — host sets before each entry call */
     int reload_count;

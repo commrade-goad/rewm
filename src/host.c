@@ -134,10 +134,11 @@ static void wm_cleanup(WMState *s) {
 /* -------------------------------------------------------------------------
  *  SIGINT / SIGTERM handler
  * ------------------------------------------------------------------------- */
-static volatile int sig_caught = 0;
+static WMState *sig_state = NULL;  /* pointer to state for signal handler */
 static void sig_handler(int sig) {
     (void)sig;
-    sig_caught = 1;
+    if (sig_state)
+        sig_state->sig_caught = 1;
 }
 
 /* -------------------------------------------------------------------------
@@ -197,6 +198,13 @@ int main(int argc, char **argv) {
 	return 1;
     }
 
+    /* ---- WM state (survives reload) ---- */
+    WMState state;
+    memset(&state, 0, sizeof(state));
+    state.reload_count = 0;
+    state.sig_caught = 0;
+    sig_state = &state;  /* set before installing signal handler */
+
     /* ---- signal handling ---- */
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
@@ -213,11 +221,6 @@ int main(int argc, char **argv) {
     setlocale(LC_CTYPE, "");
     if (!XSupportsLocale())
         fprintf(stderr, "rewm: no locale support\n");
-
-    /* ---- WM state (survives reload) ---- */
-    WMState state;
-    memset(&state, 0, sizeof(state));
-    state.reload_count = 0;
 
     /* ---- X11 init ---- */
     if (!x11_init(&state)) return 1;
@@ -257,7 +260,7 @@ int main(int argc, char **argv) {
     int force_reload = 0;
 
     /* ---- main reload loop ---- */
-    while (host_running && !sig_caught) {
+    while (host_running && !state.sig_caught) {
         int changed = file_changed(srcloc, &wm_mtime);
         if (first || changed || force_reload) {
             first = 0;
