@@ -64,6 +64,9 @@ struct rewm_compiler {
     MIR_context_t ctx;
     int gen_inited;
     unsigned optimize_level;
+    const char **include_dirs;
+    size_t include_dirs_num;
+    size_t include_dirs_cap;
 };
 
 rewm_compiler_t *rewm_compiler_create(void) {
@@ -73,7 +76,22 @@ rewm_compiler_t *rewm_compiler_create(void) {
     if (!rc->ctx) { free(rc); return NULL; }
     c2mir_init(rc->ctx);
     rc->optimize_level = 3;
+    rc->include_dirs = NULL;
+    rc->include_dirs_num = 0;
+    rc->include_dirs_cap = 0;
     return rc;
+}
+
+void rewm_add_include_dir(rewm_compiler_t *rc, const char *path) {
+    if (!rc || !path) return;
+    if (rc->include_dirs_num >= rc->include_dirs_cap) {
+        size_t new_cap = rc->include_dirs_cap ? rc->include_dirs_cap * 2 : 8;
+        const char **new_dirs = realloc(rc->include_dirs, new_cap * sizeof(const char *));
+        if (!new_dirs) return;
+        rc->include_dirs = new_dirs;
+        rc->include_dirs_cap = new_cap;
+    }
+    rc->include_dirs[rc->include_dirs_num++] = path;
 }
 
 void rewm_compiler_destroy(rewm_compiler_t *rc) {
@@ -81,6 +99,10 @@ void rewm_compiler_destroy(rewm_compiler_t *rc) {
     if (rc->gen_inited) MIR_gen_finish(rc->ctx);
     c2mir_finish(rc->ctx);
     MIR_finish(rc->ctx);
+    for (size_t i = 0; i < rc->include_dirs_num; i++) {
+        free((void *)rc->include_dirs[i]);
+    }
+    free(rc->include_dirs);
     free(rc);
 }
 
@@ -100,6 +122,10 @@ static int compile_source(rewm_compiler_t *rc,
     /* compile into MIR modules (no output files) */
     opts.asm_p         = 0;
     opts.object_p      = 0;
+    
+    /* Pass include directories to c2mir */
+    opts.include_dirs = rc->include_dirs;
+    opts.include_dirs_num = rc->include_dirs_num;
 
     struct { const uint8_t *buf; size_t len; size_t pos; } buf_state;
     buf_state.buf = code;

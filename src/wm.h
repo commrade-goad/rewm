@@ -10,6 +10,7 @@
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 #include <X11/extensions/Xinerama.h>
+#include <X11/Xft/Xft.h>
 
 #define LENGTH(x)       (sizeof(x) / sizeof(x[0]))
 #define MAX(a, b)       ((a) > (b) ? (a) : (b))
@@ -103,13 +104,22 @@ struct WMState {
     Atom net_wm_check;
     Atom utf8_string;
 
-    /* bar / drawing (core-font based, no external deps) */
+    /* bar / drawing (Xft-backed, mirrors your drw.c: one shared
+     * off-screen scratch pixmap, resized as needed, XCopyArea'd onto
+     * whichever monitor's barwin is being redrawn) */
     GC gc;
-    XFontStruct *xfont;
+    Visual *visual;
+    Colormap cmap;
+    unsigned int depth;
+    Drawable drawable;          /* shared scratch pixmap for bar rendering */
+    unsigned int draww, drawh;  /* current scratch pixmap size */
+    XftDraw *xftdraw;           /* bound to `drawable` */
+    XftFont *xftfont;           /* single font for now, no fallback chain yet */
+    XftColor xftcol[SchemeLast][ColLast];
     int fonth;                  /* font pixel height */
     int barheight;
     int lrpad;                  /* left+right text padding */
-    unsigned long col[SchemeLast][ColLast];
+    unsigned long col[SchemeLast][ColLast]; /* plain pixel values, for GC rect fills */
 
     /* cursors */
     Cursor cur_normal, cur_move, cur_resize;

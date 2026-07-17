@@ -15,14 +15,14 @@
 #endif
 
 const char *cflags[] = {
-    "-I.", "-Isrc", "-Ideps/cmm", "-Ideps/cmm/c2mir",
+    "-I.", "-Isrc", "-Ideps/cmm", "-Ideps/cmm/c2mir", "-I/usr/include/freetype2",
     "-MMD", "-MP", "-g",
     "-std=gnu11", "-O3",
     "-DNDEBUG", "-DC2MIR_PARALLEL",
 };
 const int ncflags = sizeof cflags / sizeof cflags[0];
 
-const char *ldflags[] = {"-lm", "-ldl", "-lpthread", "-lX11", "-lXinerama"};
+const char *ldflags[] = {"-lm", "-ldl", "-lpthread", "-lX11", "-lXinerama", "-lXft", "-lfontconfig"};
 const int nldflags = sizeof ldflags / sizeof ldflags[0];
 
 const char *srcs[] = {

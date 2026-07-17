@@ -2,7 +2,16 @@
  *
  * Compile with:
  *   cc -o rewm host.c src/c2mir-lib.c deps/cmm/{mir, mir-gen, c2mir/c2mir}.c \
- *      -I deps/cmm -I deps/cmm/c2mir -lm -ldl -lpthread -lX11
+ *      -I deps/cmm -I deps/cmm/c2mir -lm -ldl -lpthread \
+ *      -lX11 -lXinerama -lXft -lfontconfig -lXrender
+ *
+ * IMPORTANT: wm.c is JIT-compiled and resolves every X/Xft/Xinerama
+ * symbol via dlsym(RTLD_DEFAULT) at link time (see import_resolver in
+ * c2mir-lib.c). dlsym(RTLD_DEFAULT) only sees symbols already loaded
+ * into *this* process -- so every library wm.c calls into must be on
+ * this host's own link line, even if it's installed on the system.
+ * If you add a new X extension to wm.c, add its -l flag here too, or
+ * the JIT link step will fail with "can't find symbol" at reload time.
  */
 
 #include "c2mir-lib.h"
@@ -144,6 +153,33 @@ static int checkotherwm(Display *dpy) {
 }
 
 /* -------------------------------------------------------------------------
+ *  Parse REWM_CFLAGS environment variable and add include directories
+ * ------------------------------------------------------------------------- */
+static void parse_cflags(rewm_compiler_t *rc) {
+    const char *cflags = getenv("REWM_CFLAGS");
+    if (!cflags) return;
+    
+    char *buf = strdup(cflags);
+    if (!buf) return;
+    
+    char *token = strtok(buf, " \t");
+    while (token) {
+        if (strncmp(token, "-I", 2) == 0) {
+            const char *path = token + 2;
+            if (*path) {
+                char *path_copy = strdup(path);
+                if (path_copy) {
+                    rewm_add_include_dir(rc, path_copy);
+                }
+            }
+        }
+        token = strtok(NULL, " \t");
+    }
+    
+    free(buf);
+}
+
+/* -------------------------------------------------------------------------
  *  Main
  * ------------------------------------------------------------------------- */
 int main(int argc, char **argv) {
@@ -234,6 +270,7 @@ int main(int argc, char **argv) {
             rewm_compiler_t *new_rc = rewm_compiler_create();
             wm_entry_fn new_entry = NULL;
             if (new_rc) {
+                parse_cflags(new_rc);
                 rewm_set_optimize_level(new_rc, 3);
                 new_entry = (wm_entry_fn)
                     rewm_compile_and_get(new_rc, srcloc, "wm_entry");

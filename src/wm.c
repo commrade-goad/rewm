@@ -9,10 +9,15 @@
  * All X11 calls resolve via the import resolver (RTLD_DEFAULT) from
  * host's libX11 linkage.
  *
- * dwm-alike: tags, master/stack tiling, monocle, floating, a text
- * bar, mouse move/resize (sxwm-style drag), fullscreen, ICCCM/EWMH
- * basics.  No Xft/fontconfig dependency — core X fonts only, so the
- * host link line stays -lX11 -lm -ldl -lpthread.
+ * dwm-alike: tags, master/stack tiling, monocle, floating, an
+ * Xft-rendered text bar, mouse move/resize (sxwm-style drag),
+ * fullscreen, ICCCM/EWMH basics, Xinerama multi-monitor.
+ *
+ * IMPORTANT: because JIT-compiled code resolves symbols via
+ * dlsym(RTLD_DEFAULT) against the *host* process, host.c's own link
+ * line must include -lXft -lfontconfig -lXrender -lXinerama, not just
+ * have those libs present on the system -- dlsym(RTLD_DEFAULT) only
+ * sees symbols already loaded into this process.
  */
 
 #define _DEFAULT_SOURCE
@@ -36,7 +41,7 @@
 #define TERMINAL          "st"
 #define LAUNCHER          "dmenu_run"
 #define TAGMASK           ((1 << 9) - 1)
-#define FONTNAME          "fixed"
+#define FONTNAME          "monospace:size=11"
 #define BARHEIGHT_PAD     6      /* extra px added to font height for bar */
 #define COL_NORM_BG       "#222222"
 #define COL_NORM_FG       "#bbbbbb"
@@ -225,7 +230,7 @@ static Key keys[] = {
 #define KEY_COUNT ((int)(sizeof(keys)/sizeof(keys[0])))
 
 /* =========================================================================
- *  Colors / font (core X fonts, no Xft dependency)
+ *  Colors / font (Xft-backed)
  * ========================================================================= */
 static unsigned long getcolor(WMState *s, const char *name) {
     XColor c;
@@ -235,27 +240,101 @@ static unsigned long getcolor(WMState *s, const char *name) {
     return c.pixel;
 }
 
+static void freexftcolors(WMState *s) {
+    /* only meaningful once visual/cmap are known, i.e. after the very
+     * first setupfont() -- guard so the pre-init call doesn't touch
+     * garbage */
+    if (!s->visual) return;
+    for (int i = 0; i < SchemeLast; i++)
+        for (int j = 0; j < ColLast; j++)
+            if (s->xftcol[i][j].pixel || s->xftcol[i][j].color.alpha)
+                XftColorFree(s->dpy, s->visual, s->cmap, &s->xftcol[i][j]);
+}
+
+static void allocxftcolor(WMState *s, int scheme, int col, const char *name) {
+    if (!XftColorAllocName(s->dpy, s->visual, s->cmap, name, &s->xftcol[scheme][col]))
+        fprintf(stderr, "rewm: cannot allocate Xft color '%s'\n", name);
+}
+
 static void setupcolors(WMState *s) {
+    /* plain pixel values, used by drawrect() (tag dots, borders) */
     s->col[SchemeNorm][ColFg]     = getcolor(s, COL_NORM_FG);
     s->col[SchemeNorm][ColBg]     = getcolor(s, COL_NORM_BG);
     s->col[SchemeNorm][ColBorder] = getcolor(s, COL_NORM_BORDER);
     s->col[SchemeSel][ColFg]      = getcolor(s, COL_SEL_FG);
     s->col[SchemeSel][ColBg]      = getcolor(s, COL_SEL_BG);
     s->col[SchemeSel][ColBorder]  = getcolor(s, COL_SEL_BORDER);
+
+    /* Xft colors, used by drawtext(). setupcolors() is called on
+     * every reload (not just first init), so free the previous
+     * allocation first -- XftColorAllocName holds Render-side
+     * resources that plain XAllocNamedColor refcounting doesn't. */
+    freexftcolors(s);
+    s->visual = DefaultVisual(s->dpy, s->screen);
+    s->cmap   = DefaultColormap(s->dpy, s->screen);
+    s->depth  = (unsigned int)DefaultDepth(s->dpy, s->screen);
+    allocxftcolor(s, SchemeNorm, ColFg,     COL_NORM_FG);
+    allocxftcolor(s, SchemeNorm, ColBg,     COL_NORM_BG);
+    allocxftcolor(s, SchemeNorm, ColBorder, COL_NORM_BORDER);
+    allocxftcolor(s, SchemeSel,  ColFg,     COL_SEL_FG);
+    allocxftcolor(s, SchemeSel,  ColBg,     COL_SEL_BG);
+    allocxftcolor(s, SchemeSel,  ColBorder, COL_SEL_BORDER);
 }
 
 static void setupfont(WMState *s) {
-    s->xfont = XLoadQueryFont(s->dpy, FONTNAME);
-    if (!s->xfont)
-        s->xfont = XLoadQueryFont(s->dpy, "fixed");
-    if (s->xfont) {
-        s->fonth = s->xfont->ascent + s->xfont->descent;
-        XSetFont(s->dpy, s->gc, s->xfont->fid);
+    /* Close the old font before loading a new one (for hot-reload) */
+    if (s->xftfont) {
+        XftFontClose(s->dpy, s->xftfont);
+        s->xftfont = NULL;
+    }
+    
+    s->xftfont = XftFontOpenName(s->dpy, s->screen, FONTNAME);
+    if (!s->xftfont)
+        s->xftfont = XftFontOpenName(s->dpy, s->screen, "fixed");
+    if (s->xftfont) {
+        s->fonth = s->xftfont->ascent + s->xftfont->descent;
     } else {
+        fprintf(stderr, "rewm: cannot load font '%s', falling back to 12px\n", FONTNAME);
         s->fonth = 12;
     }
     s->lrpad = s->fonth;
     s->barheight = s->fonth + BARHEIGHT_PAD;
+}
+
+/* Shared off-screen scratch pixmap that every drawbar() call draws
+ * into before XCopyArea-ing the result onto that monitor's barwin --
+ * same trick your drw.c uses (drw->drawable / drw_resize), just sized
+ * once to the full display width so no per-monitor resize is needed. */
+static void setupdrawable(WMState *s) {
+    unsigned int w = (unsigned int)MAX(s->sw, 1);
+    unsigned int h = (unsigned int)MAX(s->barheight, 1);
+    
+    /* Clean up old drawable if it exists (for hot-reload) */
+    if (s->xftdraw) {
+        XftDrawDestroy(s->xftdraw);
+        s->xftdraw = NULL;
+    }
+    if (s->drawable) {
+        XFreePixmap(s->dpy, s->drawable);
+        s->drawable = 0;
+    }
+    
+    s->drawable = XCreatePixmap(s->dpy, s->root, w, h, s->depth);
+    s->draww = w;
+    s->drawh = h;
+    s->xftdraw = XftDrawCreate(s->dpy, s->drawable, s->visual, s->cmap);
+}
+
+static void resizedrawable(WMState *s, unsigned int w, unsigned int h) {
+    if (w <= s->draww && h <= s->drawh) return;
+    if (w < s->draww) w = s->draww;
+    if (h < s->drawh) h = s->drawh;
+    if (s->xftdraw) XftDrawDestroy(s->xftdraw);
+    if (s->drawable) XFreePixmap(s->dpy, s->drawable);
+    s->drawable = XCreatePixmap(s->dpy, s->root, w, h, s->depth);
+    s->draww = w;
+    s->drawh = h;
+    s->xftdraw = XftDrawCreate(s->dpy, s->drawable, s->visual, s->cmap);
 }
 
 static void setupcursors(WMState *s) {
@@ -267,8 +346,11 @@ static void setupcursors(WMState *s) {
 
 static int textwidth(WMState *s, const char *text) {
     if (!text || !*text) return s->lrpad;
-    if (s->xfont)
-        return XTextWidth(s->xfont, text, (int)strlen(text)) + s->lrpad;
+    if (s->xftfont) {
+        XGlyphInfo ext;
+        XftTextExtentsUtf8(s->dpy, s->xftfont, (const FcChar8 *)text, (int)strlen(text), &ext);
+        return ext.xOff + s->lrpad;
+    }
     return (int)strlen(text) * 6 + s->lrpad;
 }
 
@@ -284,25 +366,27 @@ static void updatebarpos(WMState *s, Monitor *m) {
     }
 }
 
-static void drawrect(WMState *s, Window win, int x, int y, int w, int h, unsigned long pixel, int fill) {
+static void drawrect(WMState *s, int x, int y, int w, int h, unsigned long pixel, int fill) {
     XSetForeground(s->dpy, s->gc, pixel);
-    if (fill) XFillRectangle(s->dpy, win, s->gc, x, y, (unsigned)w, (unsigned)h);
-    else      XDrawRectangle(s->dpy, win, s->gc, x, y, (unsigned)(w - 1), (unsigned)(h - 1));
+    if (fill) XFillRectangle(s->dpy, s->drawable, s->gc, x, y, (unsigned)w, (unsigned)h);
+    else      XDrawRectangle(s->dpy, s->drawable, s->gc, x, y, (unsigned)(w - 1), (unsigned)(h - 1));
 }
 
-static void drawtext(WMState *s, Window win, int x, int y, unsigned long fg, unsigned long bg,
-                     int w, int h, const char *text) {
+static void drawtext(WMState *s, int x, int y, unsigned long fg, unsigned long bg,
+                     XftColor *xfg, int w, int h, const char *text) {
     (void)y;
     XSetForeground(s->dpy, s->gc, bg);
-    XFillRectangle(s->dpy, win, s->gc, x, 0, (unsigned)w, (unsigned)h);
-    if (!text || !*text) return;
-    XSetForeground(s->dpy, s->gc, fg);
-    int ty = (h + s->fonth) / 2 - 2;
-    XDrawString(s->dpy, win, s->gc, x + s->lrpad / 2, ty, text, (int)strlen(text));
+    XFillRectangle(s->dpy, s->drawable, s->gc, x, 0, (unsigned)w, (unsigned)h);
+    (void)fg;
+    if (!text || !*text || !s->xftfont) return;
+    int ty = (h - s->fonth) / 2 + s->xftfont->ascent;
+    XftDrawStringUtf8(s->xftdraw, xfg, s->xftfont, x + s->lrpad / 2, ty,
+                      (const FcChar8 *)text, (int)strlen(text));
 }
 
 static void drawbar(WMState *s, Monitor *m) {
     if (!m || !m->showbar || m->barwin == 0) return;
+    resizedrawable(s, (unsigned)m->ww, (unsigned)s->barheight);
 
     int x = 0;
     int occ = 0, urg = 0;
@@ -315,32 +399,38 @@ static void drawbar(WMState *s, Monitor *m) {
     for (int i = 0; i < (int)LENGTH(tagnames); i++) {
         int sel = (m->tagset[m->seltags] & (1u << i)) != 0;
         int w = textwidth(s, tagnames[i]);
-        unsigned long fg = sel ? s->col[SchemeSel][ColFg] : s->col[SchemeNorm][ColFg];
-        unsigned long bg = sel ? s->col[SchemeSel][ColBg] : s->col[SchemeNorm][ColBg];
-        drawtext(s, m->barwin, x, 0, fg, bg, w, s->barheight, tagnames[i]);
+        int scheme = sel ? SchemeSel : SchemeNorm;
+        drawtext(s, x, 0, s->col[scheme][ColFg], s->col[scheme][ColBg],
+                &s->xftcol[scheme][ColFg], w, s->barheight, tagnames[i]);
         if (occ & (1 << i))
-            drawrect(s, m->barwin, x + 1, 1, 3, 3, (urg & (1 << i)) ? s->col[SchemeSel][ColBorder] : fg, 1);
+            drawrect(s, x + 1, 1, 3, 3,
+                    (urg & (1 << i)) ? s->col[SchemeSel][ColBorder] : s->col[scheme][ColFg], 1);
         x += w;
     }
 
     /* layout symbol */
     int lw = textwidth(s, m->ltsymbol);
-    drawtext(s, m->barwin, x, 0, s->col[SchemeNorm][ColFg], s->col[SchemeNorm][ColBg], lw, s->barheight, m->ltsymbol);
+    drawtext(s, x, 0, s->col[SchemeNorm][ColFg], s->col[SchemeNorm][ColBg],
+            &s->xftcol[SchemeNorm][ColFg], lw, s->barheight, m->ltsymbol);
     x += lw;
 
     /* status text on far right */
     int sw = textwidth(s, s->statustext);
     int mid = m->ww - sw;
     if (mid < x) mid = x;
-    drawtext(s, m->barwin, mid, 0, s->col[SchemeNorm][ColFg], s->col[SchemeNorm][ColBg], m->ww - mid, s->barheight, s->statustext);
+    drawtext(s, mid, 0, s->col[SchemeNorm][ColFg], s->col[SchemeNorm][ColBg],
+            &s->xftcol[SchemeNorm][ColFg], m->ww - mid, s->barheight, s->statustext);
 
     /* selected window title fills the middle */
     int tw = mid - x;
     if (tw > 0) {
         const char *title = (s->sel && s->sel->mon == m) ? s->sel->name : "";
-        drawtext(s, m->barwin, x, 0, s->col[SchemeNorm][ColFg], s->col[SchemeNorm][ColBg], tw, s->barheight, title);
+        drawtext(s, x, 0, s->col[SchemeNorm][ColFg], s->col[SchemeNorm][ColBg],
+                &s->xftcol[SchemeNorm][ColFg], tw, s->barheight, title);
     }
 
+    XCopyArea(s->dpy, s->drawable, m->barwin, s->gc, 0, 0,
+             (unsigned)m->ww, (unsigned)s->barheight, 0, 0);
     XSync(s->dpy, False);
 }
 
@@ -1774,6 +1864,12 @@ static void cleanup(WMState *s) {
         s->wmcheckwin = 0;
     }
 
+    freexftcolors(s);
+    if (s->xftfont) { XftFontClose(s->dpy, s->xftfont); s->xftfont = NULL; }
+    if (s->xftdraw) { XftDrawDestroy(s->xftdraw); s->xftdraw = NULL; }
+    if (s->drawable) { XFreePixmap(s->dpy, s->drawable); s->drawable = 0; }
+    if (s->gc) { XFreeGC(s->dpy, s->gc); s->gc = NULL; }
+
     XDeleteProperty(s->dpy, s->root, s->net_supported);
     XDeleteProperty(s->dpy, s->root, s->net_wm_check);
     XDeleteProperty(s->dpy, s->root, s->net_client_list);
@@ -1820,6 +1916,10 @@ int wm_entry(WMState *s) {
     s->lockfullscreen = DEFAULT_LOCKFULLSCREEN;
     s->refreshrate = DEFAULT_REFRESHRATE;
 
+    /* These run on every reload so font/color changes take effect */
+    setupfont(s);
+    setupdrawable(s);
+
     for (Monitor *m = s->mons; m; m = m->next) {
         m->mfact = DEFAULT_MFACT;
         m->nmaster = DEFAULT_NMASTER;
@@ -1834,7 +1934,6 @@ int wm_entry(WMState *s) {
         s->sh = DisplayHeight(s->dpy, s->screen);
 
         s->gc = XCreateGC(s->dpy, s->root, 0, NULL);
-        setupfont(s);
         setupcursors(s);
         setupewmh(s);
         strncpy(s->statustext, "rewm", sizeof(s->statustext) - 1);
