@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <locale.h>
 #include <sys/wait.h>
 #include <X11/cursorfont.h>
 #include <X11/keysym.h>
@@ -46,6 +47,9 @@
 #define DEFAULT_MFACT     0.55f
 #define DEFAULT_NMASTER   1
 #define DEFAULT_GAP       4
+#define DEFAULT_RESIZEHINTS  1
+#define DEFAULT_LOCKFULLSCREEN 1
+#define DEFAULT_REFRESHRATE 0
 
 static const char *tagnames[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
 
@@ -96,13 +100,16 @@ static void    maprequest(WMState *s, XEvent *e);
 static void    focus(WMState *s, Client *c);
 static void    unfocus(WMState *s, Client *c, int setfocus);
 static void    drawbar(WMState *s, Monitor *m);
+static void    drawbars(WMState *s);
 static void    updatetitle(WMState *s, Client *c);
 static void    configure(WMState *s, Client *c);
 static void    resizeclient(WMState *s, Client *c, int x, int y, int w, int h);
 static void    setfullscreen(WMState *s, Client *c, int fullscreen);
 static void    setsticky(WMState *s, Client *c, int sticky);
 static Client  *nexttiled(Client *c);
+static Client  *nexttagged(Client *c);
 static void    attach(WMState *s, Client *c);
+static void    attachaside(WMState *s, Client *c);
 static void    attachstack(WMState *s, Client *c);
 static void    detach(WMState *s, Client *c);
 static void    detachstack(WMState *s, Client *c);
@@ -110,9 +117,16 @@ static void    syncglobalclients(WMState *s);
 static void    updatesizehints(WMState *s, Client *c);
 static void    updatewmhints(WMState *s, Client *c);
 static void    updatewindowtype(WMState *s, Client *c);
-static int     sendevent(WMState *s, Client *c, Atom proto);
+static int     sendevent(WMState *s, Window w, Atom proto, long d0, long d1, long d2, long d3, long d4);
 static void    unmanage(WMState *s, Client *c, int destroyed);
 static void    expose(WMState *s, XEvent *e);
+static void    focusin(WMState *s, XEvent *e);
+static void    motionnotify(WMState *s, XEvent *e);
+static void    resizerequest(WMState *s, XEvent *e);
+static void    cleanup(WMState *s);
+static Monitor *recttomon(WMState *s, int x, int y, int w, int h);
+static long    getstate(WMState *s, Window w);
+static void    updatenumlockmask(WMState *s);
 
 /* ---- key action funcs (bound in `keys[]` below) ------------------------- */
 static void togglebar(WMState *s, const Arg *arg);
@@ -316,6 +330,11 @@ static void drawbar(WMState *s, Monitor *m) {
     XSync(s->dpy, False);
 }
 
+static void drawbars(WMState *s) {
+    for (Monitor *m = s->mons; m; m = m->next)
+        drawbar(s, m);
+}
+
 static void updatestatus(WMState *s) {
     XTextProperty tp;
     if (XGetTextProperty(s->dpy, s->root, &tp, XA_WM_NAME) && tp.value) {
@@ -330,8 +349,14 @@ static void updatestatus(WMState *s) {
 /* =========================================================================
  *  Client management
  * ========================================================================= */
-static void applysizehints(WMState *s, Client *c, int *x, int *y, int *w, int *h, int interact) {
+static int applysizehints(WMState *s, Client *c, int *x, int *y, int *w, int *h, int interact) {
+    int baseismin;
     Monitor *m = c->mon;
+
+    if (!c->hintsvalid) {
+        updatesizehints(s, c);
+    }
+
     if (interact) {
         if (*x > s->sw) *x = s->sw - c->w;
         if (*y > s->sh) *y = s->sh - c->h;
@@ -343,17 +368,37 @@ static void applysizehints(WMState *s, Client *c, int *x, int *y, int *w, int *h
         if (*x + *w + 2 * c->bw <= m->wx) *x = m->wx;
         if (*y + *h + 2 * c->bw <= m->wy) *y = m->wy;
     }
-    if (*h < 1) *h = 1;
-    if (*w < 1) *w = 1;
+    if (*h < s->barheight) *h = s->barheight;
+    if (*w < s->barheight) *w = s->barheight;
 
-    if (c->isfloating || layouts[m->sellt].arrange == floating) {
-        if (c->minw && *w < c->minw) *w = c->minw;
-        if (c->minh && *h < c->minh) *h = c->minh;
+    if (s->resizehints || c->isfloating || layouts[m->sellt].arrange == floating) {
+        if (!c->basew && !c->baseh) {
+            c->basew = c->baseh = 0;
+        }
+        baseismin = (c->basew == c->minw && c->baseh == c->minh);
+        if (!baseismin) {
+            if (c->minw && *w < c->minw) *w = c->minw;
+            if (c->minh && *h < c->minh) *h = c->minh;
+        }
         if (c->maxw && *w > c->maxw) *w = c->maxw;
         if (c->maxh && *h > c->maxh) *h = c->maxh;
-        if (c->incw) *w -= (*w - c->basew) % c->incw;
-        if (c->inch) *h -= (*h - c->baseh) % c->inch;
+
+        if (c->basew && c->incw) {
+            *w -= (*w - c->basew) % c->incw;
+        }
+        if (c->baseh && c->inch) {
+            *h -= (*h - c->baseh) % c->inch;
+        }
+
+        if (c->maxa > 0.0f && c->mina > 0.0f) {
+            if ((float)*w / *h > c->maxa)
+                *h = (int)((float)*w / c->maxa + 0.5f);
+            else if ((float)*w / *h < c->mina)
+                *w = (int)((float)*h * c->mina + 0.5f);
+        }
     }
+
+    return (c->oldx != *x || c->oldy != *y || c->oldw != *w || c->oldh != *h);
 }
 
 static void configure(WMState *s, Client *c) {
@@ -371,10 +416,15 @@ static void configure(WMState *s, Client *c) {
 }
 
 static void resizeclient(WMState *s, Client *c, int x, int y, int w, int h) {
-    c->oldx = c->x; c->oldy = c->y; c->oldw = c->w; c->oldh = c->h;
-    c->x = x; c->y = y; c->w = w; c->h = h;
-    XMoveResizeWindow(s->dpy, c->win, x, y, (unsigned)MAX(w - 2 * c->bw, 1), (unsigned)MAX(h - 2 * c->bw, 1));
+    XWindowChanges wc;
+    c->oldx = c->x; c->x = wc.x = x;
+    c->oldy = c->y; c->y = wc.y = y;
+    c->oldw = c->w; c->w = wc.width = w;
+    c->oldh = c->h; c->h = wc.height = h;
+    wc.border_width = c->bw;
+    XConfigureWindow(s->dpy, c->win, CWX|CWY|CWWidth|CWHeight|CWBorderWidth, &wc);
     configure(s, c);
+    XSync(s->dpy, False);
 }
 
 static void resize(WMState *s, Client *c, int x, int y, int w, int h, int interact) {
@@ -405,24 +455,35 @@ static void setclientstate(WMState *s, Client *c, long state) {
                     PropModeReplace, (unsigned char *)data, 2);
 }
 
-static int sendevent(WMState *s, Client *c, Atom proto) {
-    int exists = 0;
-    Atom *protocols;
+static int sendevent(WMState *s, Window w, Atom proto, long d0, long d1, long d2, long d3, long d4) {
     int n;
-    if (XGetWMProtocols(s->dpy, c->win, &protocols, &n)) {
-        for (int i = 0; i < n && !exists; i++)
-            exists = (protocols[i] == proto);
-        XFree(protocols);
+    Atom *protocols;
+    Atom mt;
+    int exists = 0;
+    XEvent ev;
+
+    if (proto != s->wm_protocols) {
+        mt = s->wm_protocols;
+        if (XGetWMProtocols(s->dpy, w, &protocols, &n)) {
+            while (n-- > 0)
+                if (protocols[n] == proto) { exists = 1; break; }
+            XFree(protocols);
+        }
+    } else {
+        mt = s->wm_protocols;
+        exists = 1;
     }
     if (exists) {
-        XEvent ev;
         ev.type = ClientMessage;
-        ev.xclient.window = c->win;
-        ev.xclient.message_type = s->wm_protocols;
+        ev.xclient.window = w;
+        ev.xclient.message_type = mt;
         ev.xclient.format = 32;
-        ev.xclient.data.l[0] = (long)proto;
-        ev.xclient.data.l[1] = CurrentTime;
-        XSendEvent(s->dpy, c->win, False, NoEventMask, &ev);
+        ev.xclient.data.l[0] = d0;
+        ev.xclient.data.l[1] = d1;
+        ev.xclient.data.l[2] = d2;
+        ev.xclient.data.l[3] = d3;
+        ev.xclient.data.l[4] = d4;
+        XSendEvent(s->dpy, w, False, NoEventMask, &ev);
     }
     return exists;
 }
@@ -433,7 +494,7 @@ static void setfocus(WMState *s, Client *c) {
         XChangeProperty(s->dpy, s->root, s->net_active_window, XA_WINDOW, 32,
                         PropModeReplace, (unsigned char *)&c->win, 1);
     }
-    sendevent(s, c, s->wm_take_focus);
+    sendevent(s, c->win, s->wm_protocols, s->wm_take_focus, CurrentTime, 0, 0, 0);
 }
 
 static void unfocus(WMState *s, Client *c, int setfocusflag) {
@@ -484,15 +545,27 @@ static void grabbuttons(WMState *s, Client *c, int focused) {
 }
 
 static void grabkeys(WMState *s) {
+    updatenumlockmask(s);
     XUngrabKey(s->dpy, AnyKey, AnyModifier, s->root);
-    unsigned int mods[] = { 0, LockMask, numlockmask, numlockmask | LockMask };
-    for (int i = 0; i < KEY_COUNT; i++) {
-        KeyCode code = XKeysymToKeycode(s->dpy, keys[i].keysym);
-        if (!code) continue;
-        for (int j = 0; j < (int)LENGTH(mods); j++)
-            XGrabKey(s->dpy, code, keys[i].mod | mods[j], s->root, True,
-                     GrabModeAsync, GrabModeAsync);
+
+    int mincode, maxcode;
+    XDisplayKeycodes(s->dpy, &mincode, &maxcode);
+    int keysyms_per_keycode;
+    KeySym *keysyms = XGetKeyboardMapping(s->dpy, mincode, maxcode - mincode + 1, &keysyms_per_keycode);
+    if (!keysyms) return;
+
+    for (int kc = mincode; kc <= maxcode; kc++) {
+        KeySym keysym = keysyms[(kc - mincode) * keysyms_per_keycode];
+        for (int i = 0; i < KEY_COUNT; i++) {
+            if (keysym == keys[i].keysym) {
+                unsigned int mods[] = { 0, LockMask, numlockmask, numlockmask | LockMask };
+                for (int j = 0; j < (int)LENGTH(mods); j++)
+                    XGrabKey(s->dpy, kc, keys[i].mod | mods[j], s->root, True,
+                             GrabModeAsync, GrabModeAsync);
+            }
+        }
     }
+    XFree(keysyms);
 }
 
 static void updatenumlockmask(WMState *s) {
@@ -538,7 +611,14 @@ static void updatesizehints(WMState *s, Client *c) {
     if (hints.flags & PMinSize) { c->minw = hints.min_width; c->minh = hints.min_height; }
     else if (hints.flags & PBaseSize) { c->minw = hints.base_width; c->minh = hints.base_height; }
     else { c->minw = c->minh = 0; }
+    if (hints.flags & PAspect) {
+        c->mina = (float)hints.min_aspect.y / hints.min_aspect.x;
+        c->maxa = (float)hints.max_aspect.x / hints.max_aspect.y;
+    } else {
+        c->mina = c->maxa = 0.0f;
+    }
     c->isfixed = (c->maxw && c->maxh && c->maxw == c->minw && c->maxh == c->minh);
+    c->hintsvalid = 1;
 }
 
 static void updatewmhints(WMState *s, Client *c) {
@@ -582,6 +662,23 @@ static void attach(WMState *s, Client *c) {
     syncglobalclients(s);
 }
 
+static void attachaside(WMState *s, Client *c) {
+    Client *at = nexttagged(c);
+    if (!at) {
+        attach(s, c);
+        return;
+    }
+    c->next = at->next;
+    at->next = c;
+    syncglobalclients(s);
+}
+
+static Client *nexttagged(Client *c) {
+    Client *walked;
+    for (walked = c->mon->clients; walked && (walked->isfloating || !(walked->tags & c->tags)); walked = walked->next);
+    return walked;
+}
+
 static void detach(WMState *s, Client *c) {
     Client **tc;
     for (tc = &c->mon->clients; *tc && *tc != c; tc = &(*tc)->next);
@@ -617,8 +714,22 @@ static Client *nexttiled(Client *c) {
     return c;
 }
 
+static Monitor *recttomon(WMState *s, int x, int y, int w, int h) {
+    Monitor *m, *r = s->selmon;
+    int a, area = 0;
+    for (m = s->mons; m; m = m->next) {
+        if ((a = INTERSECT(x, y, w, h, m)) > area) {
+            area = a;
+            r = m;
+        }
+    }
+    return r;
+}
+
 static Monitor *wintomon(WMState *s, Window w) {
-    if (w == s->root) return s->selmon;
+    int x, y;
+    if (w == s->root && getrootptr(s, &x, &y))
+        return recttomon(s, x, y, 1, 1);
     Client *c = wintoclient(s, w);
     if (c) return c->mon;
     return s->selmon;
@@ -697,17 +808,21 @@ static Client *createclient(WMState *s, Window w, XWindowAttributes *wa) {
     updatetitle(s, c);
     updatesizehints(s, c);
     updatewmhints(s, c);
-    applyrules(s, c);
 
     Window trans = None;
-    if (XGetTransientForHint(s->dpy, w, &trans) && wintoclient(s, trans))
+    Client *parent = NULL;
+    if (XGetTransientForHint(s->dpy, w, &trans) && (parent = wintoclient(s, trans))) {
         c->isfloating = 1;
+        c->mon = parent->mon;
+        c->tags = parent->tags;
+    } else {
+        applyrules(s, c);
+    }
+
     updatewindowtype(s, c);
 
-    if (c->isfloating || c->isfixed) {
-        c->x = MAX(c->x, c->mon->wx);
-        c->y = MAX(c->y, c->mon->wy);
-    }
+    c->x = c->mon->mx + (c->mon->mw - (c->w + 2 * c->bw)) / 2;
+    c->y = c->mon->my + (c->mon->mh - (c->h + 2 * c->bw)) / 2;
 
     XSetWindowBorderWidth(s->dpy, w, (unsigned)c->bw);
     XSetWindowBorder(s->dpy, w, s->col[SchemeNorm][ColBorder]);
@@ -716,13 +831,20 @@ static Client *createclient(WMState *s, Window w, XWindowAttributes *wa) {
     grabbuttons(s, c, 0);
     if (!c->isfloating) c->isfloating = c->isfixed;
 
-    attach(s, c);
+    if (c->isfloating)
+        XRaiseWindow(s->dpy, c->win);
+
+    attachaside(s, c);
     attachstack(s, c);
 
     XChangeProperty(s->dpy, s->root, s->net_client_list, XA_WINDOW, 32,
                     PropModeAppend, (unsigned char *)&w, 1);
-    XMoveResizeWindow(s->dpy, c->win, c->x, c->y, (unsigned)c->w, (unsigned)c->h);
+    XMoveResizeWindow(s->dpy, c->win, c->x + 2 * s->sw, c->y, (unsigned)c->w, (unsigned)c->h);
     setclientstate(s, c, NormalState);
+
+    if (s->sel)
+        unfocus(s, s->sel, 0);
+
     XMapWindow(s->dpy, w);
     arrange(s, c->mon);
     focus(s, c);
@@ -738,6 +860,7 @@ static void unmanage(WMState *s, Client *c, int destroyed) {
         XSelectInput(s->dpy, c->win, NoEventMask);
         XUngrabButton(s->dpy, AnyButton, AnyModifier, c->win);
         setclientstate(s, c, WithdrawnState);
+        XSetWindowBorderWidth(s->dpy, c->win, (unsigned)c->oldbw);
         XSync(s->dpy, False);
         XUngrabServer(s->dpy);
     }
@@ -933,6 +1056,31 @@ static void mappingnotify(WMState *s, XEvent *e) {
         grabkeys(s);
 }
 
+static void focusin(WMState *s, XEvent *e) {
+    XFocusChangeEvent *ev = &e->xfocus;
+    if (s->sel && ev->window != s->sel->win)
+        setfocus(s, s->sel);
+}
+
+static void motionnotify(WMState *s, XEvent *e) {
+    static Monitor *mon = NULL;
+    XMotionEvent *ev = &e->xmotion;
+    Monitor *m;
+    if (ev->window != s->root) return;
+    m = recttomon(s, ev->x_root, ev->y_root, 1, 1);
+    if (m && m != s->selmon) {
+        if (mon)
+            unfocus(s, s->sel, 1);
+        s->selmon = m;
+        focus(s, NULL);
+    }
+    mon = m;
+}
+
+static void resizerequest(WMState *s, XEvent *e) {
+    (void)s; (void)e;
+}
+
 /* =========================================================================
  *  Utilities
  * ========================================================================= */
@@ -1053,6 +1201,7 @@ static void togglebar(WMState *s, const Arg *arg) {
 static void focusstack(WMState *s, const Arg *arg) {
     Client *c = NULL;
     if (!s->sel) return;
+    if (s->sel->isfullscreen && s->lockfullscreen) return;
     if (arg->i > 0) {
         for (c = s->sel->next; c && !isvisible(c->mon, c); c = c->next);
         if (!c) for (c = s->selmon->clients; c && !isvisible(c->mon, c); c = c->next);
@@ -1125,7 +1274,7 @@ static void toggletag(WMState *s, const Arg *arg) {
 static void killclient(WMState *s, const Arg *arg) {
     (void)arg;
     if (!s->sel) return;
-    if (!sendevent(s, s->sel, s->wm_delete_window)) {
+    if (!sendevent(s, s->sel->win, s->wm_protocols, s->wm_delete_window, CurrentTime, 0, 0, 0)) {
         XGrabServer(s->dpy);
         XSetCloseDownMode(s->dpy, DestroyAll);
         XKillClient(s->dpy, s->sel->win);
@@ -1313,6 +1462,7 @@ static int exitcode = REWM_QUIT;
 
 static void quit(WMState *s, const Arg *arg) {
     (void)arg;
+    cleanup(s);
     exitcode = REWM_QUIT;
     s->running = 0;
 }
@@ -1330,16 +1480,44 @@ static void scanwindows(WMState *s) {
     Window root_return, parent_return, *wins = NULL;
     unsigned int n = 0;
     if (!XQueryTree(s->dpy, s->root, &root_return, &parent_return, &wins, &n)) return;
+
     for (unsigned int i = 0; i < n; i++) {
         XWindowAttributes wa;
         if (!XGetWindowAttributes(s->dpy, wins[i], &wa)) continue;
         if (wa.override_redirect) continue;
-        if (wa.map_state != IsViewable) continue;
         if (iswmwin(s, wins[i])) continue;
         if (wintoclient(s, wins[i])) continue;
-        createclient(s, wins[i], &wa);
+
+        if (wa.map_state == IsViewable) {
+            Window trans = None;
+            if (XGetTransientForHint(s->dpy, wins[i], &trans)) continue;
+            createclient(s, wins[i], &wa);
+        } else {
+            Atom state;
+            unsigned long nitems;
+            if (getstate(s, wins[i]) == IconicState) {
+                createclient(s, wins[i], &wa);
+            }
+        }
     }
+
     if (wins) XFree(wins);
+}
+
+static long getstate(WMState *s, Window w) {
+    Atom real;
+    int format;
+    unsigned long n, extra;
+    unsigned char *data = NULL;
+    long result = -1;
+
+    if (XGetWindowProperty(s->dpy, w, s->wm_state, 0L, 2L, False, s->wm_state,
+                           &real, &format, &n, &extra, &data) == Success) {
+        if (n != 0)
+            result = *(long *)data;
+        XFree(data);
+    }
+    return result;
 }
 
 static void setupewmh(WMState *s) {
@@ -1364,6 +1542,52 @@ static void setupewmh(WMState *s) {
     XChangeProperty(s->dpy, s->root, s->net_supported, XA_ATOM, 32,
                     PropModeReplace, (unsigned char *)supported, (int)LENGTH(supported));
     XDeleteProperty(s->dpy, s->root, s->net_client_list);
+}
+
+static void cleanup(WMState *s) {
+    if (!s->initialized) return;
+
+    Arg a = { .ui = ~0 };
+    view(s, &a);
+
+    Layout lt = { "", NULL };
+    for (Monitor *m = s->mons; m; m = m->next) {
+        m->sellt = 0;
+        strncpy(m->ltsymbol, lt.symbol, sizeof(m->ltsymbol) - 1);
+    }
+
+    XUngrabKey(s->dpy, AnyKey, AnyModifier, s->root);
+
+    XSetInputFocus(s->dpy, s->root, RevertToPointerRoot, CurrentTime);
+
+    while (s->clients) {
+        Client *c = s->clients;
+        s->clients = c->next;
+        XUngrabButton(s->dpy, AnyButton, AnyModifier, c->win);
+        setclientstate(s, c, WithdrawnState);
+        XSetWindowBorderWidth(s->dpy, c->win, (unsigned)c->oldbw);
+        free(c);
+    }
+
+    for (Monitor *m = s->mons; m; m = m->next) {
+        if (m->barwin) {
+            XUnmapWindow(s->dpy, m->barwin);
+            XDestroyWindow(s->dpy, m->barwin);
+            m->barwin = 0;
+        }
+    }
+
+    if (s->wmcheckwin) {
+        XDestroyWindow(s->dpy, s->wmcheckwin);
+        s->wmcheckwin = 0;
+    }
+
+    XDeleteProperty(s->dpy, s->root, s->net_supported);
+    XDeleteProperty(s->dpy, s->root, s->net_wm_check);
+    XDeleteProperty(s->dpy, s->root, s->net_client_list);
+    XDeleteProperty(s->dpy, s->root, s->net_active_window);
+
+    s->initialized = 0;
 }
 
 /* =========================================================================
@@ -1400,6 +1624,10 @@ int wm_entry(WMState *s) {
 
     setupcolors(s);
 
+    s->resizehints = DEFAULT_RESIZEHINTS;
+    s->lockfullscreen = DEFAULT_LOCKFULLSCREEN;
+    s->refreshrate = DEFAULT_REFRESHRATE;
+
     for (Monitor *m = s->mons; m; m = m->next) {
         m->mfact = DEFAULT_MFACT;
         m->nmaster = DEFAULT_NMASTER;
@@ -1421,18 +1649,21 @@ int wm_entry(WMState *s) {
 
         for (Monitor *m = s->mons; m; m = m->next) {
             updatebarpos(s, m);
-            m->barwin = XCreateSimpleWindow(s->dpy, s->root, m->mx, m->topbar ? m->my : m->my + m->wh,
-                                            (unsigned)m->mw, (unsigned)s->barheight, 0,
-                                            s->col[SchemeNorm][ColBorder], s->col[SchemeNorm][ColBg]);
-            XSetWindowBackground(s->dpy, m->barwin, s->col[SchemeNorm][ColBg]);
+            XSetWindowAttributes swa;
+            swa.override_redirect = True;
+            swa.background_pixmap = ParentRelative;
+            swa.event_mask = ExposureMask | ButtonPressMask | SubstructureNotifyMask;
+            m->barwin = XCreateWindow(s->dpy, s->root, m->mx, m->topbar ? m->my : m->my + m->wh,
+                                      (unsigned)m->mw, (unsigned)s->barheight, 0, DefaultDepth(s->dpy, s->screen),
+                                      CopyFromParent, DefaultVisual(s->dpy, s->screen),
+                                      CWOverrideRedirect | CWBackPixmap | CWEventMask, &swa);
             XDefineCursor(s->dpy, m->barwin, s->cur_normal);
-            XSelectInput(s->dpy, m->barwin, ExposureMask | ButtonPressMask);
+            XMapRaised(s->dpy, m->barwin);
+            XClassHint ch = { "rewm", "rewm" };
+            XSetClassHint(s->dpy, m->barwin, &ch);
         }
 
         scanwindows(s);
-
-        for (Monitor *m = s->mons; m; m = m->next)
-            XMapRaised(s->dpy, m->barwin);
 
         s->initialized = 1;
     }
@@ -1442,6 +1673,7 @@ int wm_entry(WMState *s) {
 
     focus(s, s->sel);
     arrange(s, NULL);
+    drawbars(s);
 
     XEvent ev;
     while (XPending(s->dpy) > 0) {
@@ -1470,6 +1702,9 @@ int wm_entry(WMState *s) {
         case PropertyNotify:     propertynotify(s, &ev);    break;
         case ClientMessage:      clientmessage(s, &ev);     break;
         case MappingNotify:      mappingnotify(s, &ev);     break;
+        case FocusIn:            focusin(s, &ev);           break;
+        case MotionNotify:       motionnotify(s, &ev);      break;
+        case ResizeRequest:      resizerequest(s, &ev);     break;
         }
     }
 

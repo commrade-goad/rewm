@@ -1,0 +1,106 @@
+* rewm: Missing Features Compared to dwm
+
+** Major Gaps
+
+*** Multi-Monitor Support
+- No Xinerama support, single monitor only
+- Missing: =updategeom()=, =createmon()=, =cleanupmon()=, =dirtomon()=, =recttomon()=
+- Missing: =focusmon()=, =sendmon()=, =tagmon()=, =isuniquegeom()=
+
+*** System Tray
+- Completely missing XEmbed-based system tray
+- Missing: =Systray= struct, =updatesystray()=, =updatesystrayicongeom()=
+- Missing: =updatesystrayiconstate()=, =removesystrayicon()=, =getsystraywidth()=
+- Missing: XEMBED message handling (=XEMBED_EMBEDDED_NOTIFY=, =XEMBED_FOCUS_IN=, etc.)
+
+*** Xresources Runtime Configuration
+- No =load_xresources()=, =reload_xresources()=, =resource_load()=
+- No =ResourcePref= struct for typed resource mapping
+
+*** Anti-Aliased Fonts
+- Core X fonts only (=XLoadQueryFont=), no Xft/fontconfig
+- No font fallback, no font set support
+
+** Missing Event Handlers
+
+| Event           | dwm | rewm    |
+|-----------------+-----+---------|
+| =FocusIn=       | Yes | Missing |
+| =MotionNotify=  | Yes | Missing |
+| =ResizeRequest= | Yes | Missing |
+
+** Missing Keybindings
+
+| Keybinding              | dwm Action                  | rewm                   |
+|-------------------------+-----------------------------+------------------------|
+| =MOD+0=                 | View all tags               | Missing                |
+| =MOD+Shift+0=           | Tag client with all tags    | Missing                |
+| =MOD+e=                 | Spawn emacs                 | Missing                |
+| =MOD+w=                 | Spawn browser               | Missing                |
+| =MOD+,=                 | Focus previous monitor      | Missing                |
+| =MOD+.=                 | Focus next monitor          | Missing                |
+| =MOD+Shift+,=           | Send client to prev monitor | Missing                |
+| =MOD+Shift+.=           | Send client to next monitor | Missing                |
+| =MOD+Shift+Space=       | Toggle floating             | Missing (uses =MOD+z=) |
+| =XF86AudioMute=         | Mute volume                 | Missing                |
+| =XF86AudioLowerVolume=  | Lower volume                | Missing                |
+| =XF86AudioRaiseVolume=  | Raise volume                | Missing                |
+| =XF86AudioMicMute=      | Mute microphone             | Missing                |
+| =XF86MonBrightnessUp=   | Raise brightness            | Missing                |
+| =XF86MonBrightnessDown= | Lower brightness            | Missing                |
+| =Print=                 | Screenshot                  | Missing                |
+| =Shift+Print=           | Screenshot selection        | Missing                |
+
+*** Missing Button Bindings
+
+| Click Region  | Button      | dwm Action           | rewm    |
+|---------------+-------------+----------------------+---------|
+| ClkLtSymbol   | Button1     | Set layout (cycle)   | Missing |
+| ClkLtSymbol   | Button3     | Set layout (monocle) | Missing |
+| ClkWinTitle   | Button2     | Zoom                 | Missing |
+| ClkStatusText | Button2     | Spawn terminal       | Missing |
+| ClkClientWin  | MOD+Button2 | Toggle floating      | Missing |
+| ClkTagBar     | MOD+Button1 | Tag                  | Missing |
+| ClkTagBar     | MOD+Button3 | Toggle tag           | Missing |
+
+** Missing Config Options
+
+| Option            | dwm                            | rewm    |
+|-------------------+--------------------------------+---------|
+| =resizehints=     | Toggle size hints for tiled    | Missing |
+| =lockfullscreen=  | Prevent focus from fullscreen  | Missing |
+| =buttons[]=       | Configurable click table       | Missing |
+| =attachaside()=   | New windows don't steal master | Missing |
+| =refreshrate=     | Throttle move/resize           | Missing |
+| =showsystray=     | Toggle systray                 | Missing |
+| =systraypinning=  | Systray monitor pinning        | Missing |
+| =rules[].monitor= | Per-rule monitor assignment    | Missing |
+
+** Minor Gaps
+
+- No =checkotherwm()= at startup
+- No =cleanup()= on exit
+- No aspect ratio hints (=PAspect=, =mina=/=maxa=)
+- No window centering on spawn
+- No =SIGCHLD= handler for zombies
+- No =getstate()= for iconic state detection
+- No =hintsvalid= optimization (always re-reads size hints)
+- No =INTERSECT= macro for monitor overlap calculation
+- No =nexttagged()= helper for =attachaside()=
+- No =focusin()= handler for focus stealing prevention
+- No =MotionNotify= on root for monitor focus follow pointer
+- No double-buffered bar rendering
+- No locale support (=setlocale()=, =XSupportsLocale()=)
+- =grabkeys()= uses =XKeysymToKeycode()= (single keycode) instead of =XGetKeyboardMapping()= (all matching keycodes)
+- =scanwindows()= is single-pass, no separate transient pass
+- =unmanage()= does not restore =border_width= to =oldbw=
+- Transient windows don't inherit parent's monitor/tags
+- Bar windows lack =override_redirect=, =ParentRelative= background, and XClassHint
+- =sendevent()= is specialized for WM_PROTOCOLS only, not general-purpose
+
+** What rewm Has That dwm Does Not
+
+- Hot-reload via JIT (MOD+Shift+R recompiles without restart)
+- =movestack= built-in (MOD+Shift+J/K)
+- =setgapsabs= (MOD+Shift+=)
+- =togglesticky= (patch in dwm, built-in in rewm)

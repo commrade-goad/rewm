@@ -15,6 +15,9 @@
 #define MIN(a, b)       ((a) < (b) ? (a) : (b))
 #define BETWEEN(x, a, b) ((a) <= (x) && (x) <= (b))
 #define CLEANMASK(m)    ((m) & ~(numlockmask|LockMask) & (ShiftMask|ControlMask|Mod1Mask|Mod2Mask|Mod3Mask|Mod4Mask|Mod5Mask))
+#define INTERSECT(x,y,w,h,m) \
+    (int)(MAX(0, MIN((x)+(w),(m)->wx+(m)->ww) - MAX((x),(m)->wx)) * \
+          MAX(0, MIN((y)+(h),(m)->wy+(m)->wh) - MAX((y),(m)->wy)))
 
 /* ---- status codes returned by wm_entry --------------------------------- */
 enum { REWM_OK, REWM_RELOAD, REWM_QUIT };
@@ -36,12 +39,14 @@ struct Client {
     int oldx, oldy, oldw, oldh;  /* saved geometry (pre-fullscreen / float toggle) */
     int oldbw;
     int basew, baseh, incw, inch, maxw, maxh, minw, minh;
+    float mina, maxa;             /* aspect ratio hints */
     int bw;                     /* border width */
     unsigned int tags;
     int isfloating, isurgent, isfullscreen, issticky;
     int wasfloating;            /* floating state to restore after unfullscreen */
     int isfixed;                 /* min==max size -> never resize */
     int neverfocus;               /* WM_HINTS input=False */
+    int hintsvalid;              /* size hints cache flag */
     Client *next;                /* monitor client list */
     Client *snext;               /* stack (focus/raise order) */
     Monitor *mon;
@@ -118,6 +123,11 @@ struct WMState {
     unsigned int borderpx;
     int snap;
     int bx, by, bw, bh;         /* bar geometry (unused, kept for compat) */
+
+    /* config options */
+    int resizehints;             /* 1 = respect size hints for tiled windows */
+    int lockfullscreen;          /* 1 = prevent focus change from fullscreen */
+    int refreshrate;             /* throttle move/resize (ms) */
 
     /* runtime flags */
     int running;

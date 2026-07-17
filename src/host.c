@@ -14,6 +14,8 @@
 #include <signal.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <locale.h>
 
 /* -------------------------------------------------------------------------
  *  X error handling
@@ -147,6 +149,18 @@ static void sig_handler(int sig) {
 }
 
 /* -------------------------------------------------------------------------
+ *  Check if another WM is running
+ * ------------------------------------------------------------------------- */
+static int checkotherwm(Display *dpy) {
+    XSetErrorHandler(xerrorstart);
+    XSelectInput(dpy, RootWindow(dpy, DefaultScreen(dpy)), SubstructureRedirectMask);
+    XSync(dpy, False);
+    XSetErrorHandler(xerror);
+    XSync(dpy, False);
+    return 0;
+}
+
+/* -------------------------------------------------------------------------
  *  Main
  * ------------------------------------------------------------------------- */
 int main(int argc, char **argv) {
@@ -158,7 +172,7 @@ int main(int argc, char **argv) {
 	return 1;
     }
     size_t srcsize = snprintf(NULL, 0, "%s/wm.c", srcpath) + 1;
-    char *srcloc = calloc(sizeof(srcsize), 1);
+    char *srcloc = calloc(srcsize, 1);
     if (snprintf(srcloc, srcsize, "%s/wm.c", srcpath) == 0) {
 	fprintf(stderr, "rewm: failed to allocate the path on REWM_PATH... sorry!\n");
 	return 1;
@@ -168,6 +182,19 @@ int main(int argc, char **argv) {
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
 
+    struct sigaction sa;
+    sa.sa_handler = SIG_IGN;
+    sa.sa_flags = SA_NOCLDSTOP | SA_NOCLDWAIT;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGCHLD, &sa, NULL);
+
+    /* reap any pre-existing zombies */
+    while (waitpid(-1, NULL, WNOHANG) > 0);
+
+    setlocale(LC_CTYPE, "");
+    if (!XSupportsLocale())
+        fprintf(stderr, "rewm: no locale support\n");
+
     /* ---- WM state (survives reload) ---- */
     WMState state;
     memset(&state, 0, sizeof(state));
@@ -175,6 +202,13 @@ int main(int argc, char **argv) {
 
     /* ---- X11 init ---- */
     if (!x11_init(&state)) return 1;
+
+    /* ---- check for other WM ---- */
+    if (checkotherwm(state.dpy)) {
+        fprintf(stderr, "rewm: another window manager is already running\n");
+        wm_cleanup(&state);
+        return 1;
+    }
 
     /* ---- path to wm.c ---- */
     /* default: look next to the binary or in CWD */
