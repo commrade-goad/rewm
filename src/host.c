@@ -157,7 +157,7 @@ int main(int argc, char **argv) {
 	fprintf(stderr, "rewm: REWM_PATH is not set, we dont know where are your source code at... sorry!\n");
 	return 1;
     }
-    size_t srcsize = snprintf(NULL, 0, "%s/wm.c", srcpath);
+    size_t srcsize = snprintf(NULL, 0, "%s/wm.c", srcpath) + 1;
     char *srcloc = calloc(sizeof(srcsize), 1);
     if (snprintf(srcloc, srcsize, "%s/wm.c", srcpath) == 0) {
 	fprintf(stderr, "rewm: failed to allocate the path on REWM_PATH... sorry!\n");
