@@ -16,6 +16,28 @@
 #include <sys/stat.h>
 
 /* -------------------------------------------------------------------------
+ *  X error handling
+ *
+ *  Xlib's default error handler calls exit() on *any* protocol error.
+ *  Races on window close (we touch a window that just got destroyed
+ *  out from under us) are completely normal in a WM and must not be
+ *  fatal -- this is what was killing rewm on window close.
+ * ------------------------------------------------------------------------- */
+static int xerrorstart(Display *dpy, XErrorEvent *ee) {
+    (void)dpy; (void)ee;
+    fprintf(stderr, "rewm: another window manager is already running\n");
+    exit(1);
+}
+
+static int xerror(Display *dpy, XErrorEvent *ee) {
+    (void)dpy;
+    if (ee->error_code == BadWindow) return 0;
+    fprintf(stderr, "rewm: X error: request=%d error=%d resourceid=%lu (ignored)\n",
+            ee->request_code, ee->error_code, ee->resourceid);
+    return 0; /* never let a protocol error take the process down */
+}
+
+/* -------------------------------------------------------------------------
  *  X11 initialisation
  * ------------------------------------------------------------------------- */
 static Display *x11_init(WMState *s) {
@@ -28,12 +50,17 @@ static Display *x11_init(WMState *s) {
     s->screen = DefaultScreen(dpy);
     s->root   = RootWindow(dpy, s->screen);
 
-    /* select events */
+    /* temporary handler: if SubstructureRedirectMask fails with
+     * BadAccess, another WM already owns this display */
+    XSetErrorHandler(xerrorstart);
     XSelectInput(dpy, s->root,
                  SubstructureRedirectMask | SubstructureNotifyMask
                  | ButtonPressMask | KeyPressMask | PointerMotionMask
                  | EnterWindowMask | LeaveWindowMask | StructureNotifyMask
                  | PropertyChangeMask);
+    XSync(dpy, False);
+    /* permanent handler: log and shrug off everything else */
+    XSetErrorHandler(xerror);
 
     /* create a single monitor covering the whole screen */
     Monitor *m = calloc(1, sizeof(*m));
@@ -133,7 +160,6 @@ int main(int argc, char **argv) {
     WMState state;
     memset(&state, 0, sizeof(state));
     state.reload_count = 0;
-    state.running = 1;
 
     /* ---- X11 init ---- */
     if (!x11_init(&state)) return 1;
@@ -151,12 +177,27 @@ int main(int argc, char **argv) {
 
     /* ---- file mtime tracking ---- */
     long wm_mtime = 0;
+    {
+        struct stat st;
+        if (stat(wm_source, &st) == 0) wm_mtime = st.st_mtime;
+    }
     int first = 1;
 
+    /* This controls whether the *host process* keeps going. It is
+     * deliberately separate from state.running: wm_entry() resets
+     * state.running=1 on every call and sets it back to 0 whenever
+     * its own event loop exits -- for a plain reload just as much as
+     * for quit. Using state.running here would tear the whole host
+     * down on every MOD+Shift+r. */
+    int host_running = 1;
+    int force_reload = 0;
+
     /* ---- main reload loop ---- */
-    while (state.running && !sig_caught) {
-        if (first || file_changed(wm_source, &wm_mtime)) {
+    while (host_running && !sig_caught) {
+        int changed = file_changed(wm_source, &wm_mtime);
+        if (first || changed || force_reload) {
             first = 0;
+            force_reload = 0;
             fprintf(stderr, "rewm: (re)compiling %s...\n", wm_source);
 
             /* Build the candidate in a brand-new context. The old
@@ -195,12 +236,11 @@ int main(int argc, char **argv) {
             fprintf(stderr, "rewm: wm returned %d\n", status);
 
             if (status == REWM_QUIT) {
-                state.running = 0;
+                host_running = 0;
+            } else if (status == REWM_RELOAD) {
+                force_reload = 1;
             }
-            /* REWM_RELOAD: loop back and recompile */
         } else {
-            /* If the WM returned RELOAD but file hasn't changed yet,
-             * wait a bit before retrying */
             usleep(50000); /* 50ms */
         }
     }

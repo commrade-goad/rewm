@@ -45,8 +45,27 @@
 #define COL_SEL_BORDER    "#5577cc"
 #define DEFAULT_MFACT     0.55f
 #define DEFAULT_NMASTER   1
+#define DEFAULT_GAP       4
 
 static const char *tagnames[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
+
+typedef struct {
+    const char *class;
+    const char *instance;
+    const char *title;
+    unsigned int tags;
+    int isfloating;
+} Rule;
+
+/* class/instance/title match -> tags/floating, like dwm's config.h rules[].
+ * NULL fields match anything. tags==0 keeps whatever tag was active when
+ * the window was created. Edit freely -- this is your config section. */
+static const Rule rules[] = {
+    /* class          instance  title     tags mask   isfloating */
+    { "mpv",          NULL,     NULL,     0,           1 },
+    { "Sxiv",         NULL,     NULL,     0,           1 },
+    { "Gimp",         NULL,     NULL,     0,           1 },
+};
 
 typedef union {
     int i;
@@ -81,6 +100,7 @@ static void    updatetitle(WMState *s, Client *c);
 static void    configure(WMState *s, Client *c);
 static void    resizeclient(WMState *s, Client *c, int x, int y, int w, int h);
 static void    setfullscreen(WMState *s, Client *c, int fullscreen);
+static void    setsticky(WMState *s, Client *c, int sticky);
 static Client  *nexttiled(Client *c);
 static void    attach(WMState *s, Client *c);
 static void    attachstack(WMState *s, Client *c);
@@ -107,6 +127,10 @@ static void toggletag(WMState *s, const Arg *arg);
 static void killclient(WMState *s, const Arg *arg);
 static void togglefloating(WMState *s, const Arg *arg);
 static void togglefullscreen(WMState *s, const Arg *arg);
+static void togglesticky(WMState *s, const Arg *arg);
+static void setgaps(WMState *s, const Arg *arg);
+static void setgapsabs(WMState *s, const Arg *arg);
+static void movestack(WMState *s, const Arg *arg);
 static void setlayout(WMState *s, const Arg *arg);
 static void movemouse(WMState *s, const Arg *arg);
 static void resizemouse(WMState *s, const Arg *arg);
@@ -160,6 +184,12 @@ static Key keys[] = {
     { MODKEY,                XK_f,      setlayout,      {.i = 2} },
     { MODKEY,                XK_z,      togglefloating, {0} },
     { MODKEY,                XK_u,      togglefullscreen,{0} },
+    { MODKEY,                XK_s,      togglesticky,   {0} },
+    { MODKEY|ShiftMask,      XK_j,      movestack,      {.i = +1} },
+    { MODKEY|ShiftMask,      XK_k,      movestack,      {.i = -1} },
+    { MODKEY,                XK_minus,  setgaps,        {.i = -1} },
+    { MODKEY,                XK_equal,  setgaps,        {.i = +1} },
+    { MODKEY|ShiftMask,      XK_equal,  setgapsabs,     {.i = DEFAULT_GAP} },
     TAGKEYS(XK_1, 0), TAGKEYS(XK_2, 1), TAGKEYS(XK_3, 2),
     TAGKEYS(XK_4, 3), TAGKEYS(XK_5, 4), TAGKEYS(XK_6, 5),
     TAGKEYS(XK_7, 6), TAGKEYS(XK_8, 7), TAGKEYS(XK_9, 8),
@@ -353,7 +383,7 @@ static void resize(WMState *s, Client *c, int x, int y, int w, int h, int intera
 }
 
 static int isvisible(Monitor *m, Client *c) {
-    return (c->tags & m->tagset[m->seltags]) != 0;
+    return c->issticky || (c->tags & m->tagset[m->seltags]) != 0;
 }
 
 static void showhide(WMState *s, Client *c) {
@@ -541,6 +571,8 @@ static void updatewindowtype(WMState *s, Client *c) {
         XFree(data);
         if (t == s->net_wm_fullscreen)
             setfullscreen(s, c, 1);
+        if (t == s->net_wm_sticky)
+            setsticky(s, c, 1);
     }
 }
 
@@ -631,6 +663,26 @@ static void setfullscreen(WMState *s, Client *c, int fullscreen) {
     }
 }
 
+static void applyrules(WMState *s, Client *c) {
+    XClassHint ch = { NULL, NULL };
+    XGetClassHint(s->dpy, c->win, &ch);
+    const char *class    = ch.res_class ? ch.res_class : "broken";
+    const char *instance = ch.res_name  ? ch.res_name  : "broken";
+
+    for (int i = 0; i < (int)LENGTH(rules); i++) {
+        const Rule *r = &rules[i];
+        if ((!r->title || strstr(c->name, r->title))
+            && (!r->class || strstr(class, r->class))
+            && (!r->instance || strstr(instance, r->instance))) {
+            c->isfloating = r->isfloating;
+            c->tags |= r->tags;
+        }
+    }
+    if (ch.res_class) XFree(ch.res_class);
+    if (ch.res_name) XFree(ch.res_name);
+    c->tags = (c->tags & TAGMASK) ? (c->tags & TAGMASK) : c->mon->tagset[c->mon->seltags];
+}
+
 static Client *createclient(WMState *s, Window w, XWindowAttributes *wa) {
     Client *c = calloc(1, sizeof(*c));
     if (!c) return NULL;
@@ -640,11 +692,12 @@ static Client *createclient(WMState *s, Window w, XWindowAttributes *wa) {
     c->bw = (int)s->borderpx;
     c->oldbw = wa->border_width;
     c->mon = s->selmon;
-    c->tags = c->mon->tagset[c->mon->seltags];
+    c->tags = 0;
 
     updatetitle(s, c);
     updatesizehints(s, c);
     updatewmhints(s, c);
+    applyrules(s, c);
 
     Window trans = None;
     if (XGetTransientForHint(s->dpy, w, &trans) && wintoclient(s, trans))
@@ -779,11 +832,19 @@ static void unmapnotify(WMState *s, XEvent *e) {
     if (c && !ev->send_event) unmanage(s, c, 0);
 }
 
+static int iswmwin(WMState *s, Window w) {
+    if (w == s->wmcheckwin) return 1;
+    for (Monitor *m = s->mons; m; m = m->next)
+        if (w == m->barwin) return 1;
+    return 0;
+}
+
 static void maprequest(WMState *s, XEvent *e) {
     XMapRequestEvent *ev = &e->xmaprequest;
     XWindowAttributes wa;
     if (!XGetWindowAttributes(s->dpy, ev->window, &wa)) return;
     if (wa.override_redirect) return;
+    if (iswmwin(s, ev->window)) return;
     if (wintoclient(s, ev->window)) return;
     createclient(s, ev->window, &wa);
 }
@@ -858,6 +919,8 @@ static void clientmessage(WMState *s, XEvent *e) {
     if (cme->message_type == s->net_wm_state) {
         if ((Atom)cme->data.l[1] == s->net_wm_fullscreen || (Atom)cme->data.l[2] == s->net_wm_fullscreen)
             setfullscreen(s, c, (cme->data.l[0] == 1 || (cme->data.l[0] == 2 && !c->isfullscreen)));
+        if ((Atom)cme->data.l[1] == s->net_wm_sticky || (Atom)cme->data.l[2] == s->net_wm_sticky)
+            setsticky(s, c, (cme->data.l[0] == 1 || (cme->data.l[0] == 2 && !c->issticky)));
     } else if (cme->message_type == s->net_active_window) {
         if (c != s->sel && !c->isurgent) seturgent(s, c, 1);
     }
@@ -918,19 +981,20 @@ static void tile(WMState *s, Monitor *m) {
 
     int nmaster = m->nmaster;
     if (nmaster < 0) nmaster = 0;
+    int gap = m->gappx;
 
-    int mw = (nmaster == 0) ? 0 : ((n > nmaster) ? (int)(m->ww * m->mfact) : m->ww);
+    int mw = (n > nmaster) ? (nmaster ? (int)(m->ww * m->mfact) : 0) : (m->ww - gap);
 
-    int i = 0, my = 0, ty = 0;
+    int i = 0, my = gap, ty = gap;
     for (Client *c = nexttiled(m->clients); c; c = nexttiled(c->next), i++) {
         if (i < nmaster) {
-            int h = (m->wh - my) / (MIN(n, nmaster) - i);
-            resize(s, c, m->wx, m->wy + my, mw - 2 * c->bw, h - 2 * c->bw, 0);
-            if (my + c->h + 2 * c->bw < m->wh) my += c->h + 2 * c->bw;
+            int h = (m->wh - my) / (MIN(n, nmaster) - i) - gap;
+            resize(s, c, m->wx + gap, m->wy + my, mw - 2 * c->bw - gap, h - 2 * c->bw, 0);
+            if (my + c->h + 2 * c->bw + gap < m->wh) my += c->h + 2 * c->bw + gap;
         } else {
-            int h = (m->wh - ty) / (n - i);
-            resize(s, c, m->wx + mw, m->wy + ty, m->ww - mw - 2 * c->bw, h - 2 * c->bw, 0);
-            if (ty + c->h + 2 * c->bw < m->wh) ty += c->h + 2 * c->bw;
+            int h = (m->wh - ty) / (n - i) - gap;
+            resize(s, c, m->wx + mw + gap, m->wy + ty, m->ww - mw - 2 * c->bw - 2 * gap, h - 2 * c->bw, 0);
+            if (ty + c->h + 2 * c->bw + gap < m->wh) ty += c->h + 2 * c->bw + gap;
         }
     }
 }
@@ -1095,6 +1159,79 @@ static void setlayout(WMState *s, const Arg *arg) {
     else drawbar(s, s->selmon);
 }
 
+static void setsticky(WMState *s, Client *c, int sticky) {
+    if (sticky && !c->issticky) {
+        XChangeProperty(s->dpy, c->win, s->net_wm_state, XA_ATOM, 32,
+                        PropModeReplace, (unsigned char *)&s->net_wm_sticky, 1);
+        c->issticky = 1;
+    } else if (!sticky && c->issticky) {
+        XChangeProperty(s->dpy, c->win, s->net_wm_state, XA_ATOM, 32,
+                        PropModeReplace, (unsigned char *)0, 0);
+        c->issticky = 0;
+        arrange(s, c->mon);
+    }
+}
+
+static void togglesticky(WMState *s, const Arg *arg) {
+    (void)arg;
+    if (!s->sel) return;
+    setsticky(s, s->sel, !s->sel->issticky);
+    arrange(s, s->selmon);
+}
+
+static void setgaps(WMState *s, const Arg *arg) {
+    if (arg->i == 0 || s->selmon->gappx + arg->i < 0)
+        s->selmon->gappx = 0;
+    else
+        s->selmon->gappx += arg->i;
+    arrange(s, s->selmon);
+}
+
+static void setgapsabs(WMState *s, const Arg *arg) {
+    s->selmon->gappx = arg->i;
+    arrange(s, s->selmon);
+}
+
+/* ported from movestack.c: swap the focused client with its neighbour
+ * in the tiling stack order (MOD+Shift+j/k) */
+static void movestack(WMState *s, const Arg *arg) {
+    Client *c = NULL, *p = NULL, *pc = NULL, *i;
+    Monitor *mon = s->selmon;
+    if (!s->sel) return;
+
+    if (arg->i > 0) {
+        for (c = s->sel->next; c && (!isvisible(mon, c) || c->isfloating); c = c->next);
+        if (!c)
+            for (c = mon->clients; c && (!isvisible(mon, c) || c->isfloating); c = c->next);
+    } else {
+        for (i = mon->clients; i != s->sel; i = i->next)
+            if (isvisible(mon, i) && !i->isfloating) c = i;
+        if (!c)
+            for (; i; i = i->next)
+                if (isvisible(mon, i) && !i->isfloating) c = i;
+    }
+
+    for (i = mon->clients; i && (!p || !pc); i = i->next) {
+        if (i->next == s->sel) p = i;
+        if (i->next == c) pc = i;
+    }
+
+    if (c && c != s->sel) {
+        Client *temp = (s->sel->next == c) ? s->sel : s->sel->next;
+        s->sel->next = (c->next == s->sel) ? c : c->next;
+        c->next = temp;
+
+        if (p && p != c) p->next = c;
+        if (pc && pc != s->sel) pc->next = s->sel;
+
+        if (s->sel == mon->clients) mon->clients = c;
+        else if (c == mon->clients) mon->clients = s->sel;
+
+        syncglobalclients(s);
+        arrange(s, mon);
+    }
+}
+
 /* ---- mouse move/resize (sxwm-style click-drag with edge snapping) ------- */
 static void movemouse(WMState *s, const Arg *arg) {
     (void)arg;
@@ -1198,6 +1335,7 @@ static void scanwindows(WMState *s) {
         if (!XGetWindowAttributes(s->dpy, wins[i], &wa)) continue;
         if (wa.override_redirect) continue;
         if (wa.map_state != IsViewable) continue;
+        if (iswmwin(s, wins[i])) continue;
         if (wintoclient(s, wins[i])) continue;
         createclient(s, wins[i], &wa);
     }
@@ -1234,6 +1372,17 @@ static void setupewmh(WMState *s) {
 int wm_entry(WMState *s) {
     exitcode = REWM_QUIT;
 
+    /* Defensive: release any grab that might still be held from a
+     * previous wm_entry() invocation (e.g. one that exited mid-drag,
+     * or hit an unexpected code path). A stuck Sync-mode grab freezes
+     * input for the whole X session, and reload should always be able
+     * to recover from that rather than compound it. */
+    XUngrabPointer(s->dpy, CurrentTime);
+    XUngrabKeyboard(s->dpy, CurrentTime);
+    XUngrabServer(s->dpy);
+    XAllowEvents(s->dpy, ReplayPointer, CurrentTime);
+    XSync(s->dpy, False);
+
     /* ---- atoms (cheap; re-intern every reload, ids are stable) --------- */
     s->wm_protocols      = XInternAtom(s->dpy, "WM_PROTOCOLS",      False);
     s->wm_delete_window  = XInternAtom(s->dpy, "WM_DELETE_WINDOW",  False);
@@ -1242,11 +1391,23 @@ int wm_entry(WMState *s) {
     s->net_wm_name       = XInternAtom(s->dpy, "_NET_WM_NAME",      False);
     s->net_wm_state      = XInternAtom(s->dpy, "_NET_WM_STATE",     False);
     s->net_wm_fullscreen = XInternAtom(s->dpy, "_NET_WM_STATE_FULLSCREEN", False);
+    s->net_wm_sticky     = XInternAtom(s->dpy, "_NET_WM_STATE_STICKY", False);
     s->net_active_window = XInternAtom(s->dpy, "_NET_ACTIVE_WINDOW", False);
     s->net_client_list   = XInternAtom(s->dpy, "_NET_CLIENT_LIST",  False);
     s->utf8_string       = XInternAtom(s->dpy, "UTF8_STRING",       False);
 
     updatenumlockmask(s);
+
+    setupcolors(s);
+
+    for (Monitor *m = s->mons; m; m = m->next) {
+        m->mfact = DEFAULT_MFACT;
+        m->nmaster = DEFAULT_NMASTER;
+        m->gappx = DEFAULT_GAP;
+        m->showbar = 1;
+        m->topbar = 1;
+        strncpy(m->ltsymbol, layouts[0].symbol, sizeof(m->ltsymbol) - 1);
+    }
 
     if (!s->initialized) {
         s->sw = DisplayWidth(s->dpy, s->screen);
@@ -1254,17 +1415,11 @@ int wm_entry(WMState *s) {
 
         s->gc = XCreateGC(s->dpy, s->root, 0, NULL);
         setupfont(s);
-        setupcolors(s);
         setupcursors(s);
         setupewmh(s);
         strncpy(s->statustext, "rewm", sizeof(s->statustext) - 1);
 
         for (Monitor *m = s->mons; m; m = m->next) {
-            if (m->mfact <= 0.0f) m->mfact = DEFAULT_MFACT;
-            if (m->nmaster <= 0) m->nmaster = DEFAULT_NMASTER;
-            m->showbar = 1;
-            m->topbar = 1;
-            strncpy(m->ltsymbol, layouts[0].symbol, sizeof(m->ltsymbol) - 1);
             updatebarpos(s, m);
             m->barwin = XCreateSimpleWindow(s->dpy, s->root, m->mx, m->topbar ? m->my : m->my + m->wh,
                                             (unsigned)m->mw, (unsigned)s->barheight, 0,
@@ -1272,10 +1427,13 @@ int wm_entry(WMState *s) {
             XSetWindowBackground(s->dpy, m->barwin, s->col[SchemeNorm][ColBg]);
             XDefineCursor(s->dpy, m->barwin, s->cur_normal);
             XSelectInput(s->dpy, m->barwin, ExposureMask | ButtonPressMask);
-            XMapRaised(s->dpy, m->barwin);
         }
 
         scanwindows(s);
+
+        for (Monitor *m = s->mons; m; m = m->next)
+            XMapRaised(s->dpy, m->barwin);
+
         s->initialized = 1;
     }
 
@@ -1285,8 +1443,12 @@ int wm_entry(WMState *s) {
     focus(s, s->sel);
     arrange(s, NULL);
 
-    /* ---- event loop --------------------------------------------------- */
     XEvent ev;
+    while (XPending(s->dpy) > 0) {
+        XNextEvent(s->dpy, &ev);
+    }
+
+    /* ---- event loop --------------------------------------------------- */
     s->running = 1;
     XSync(s->dpy, False);
     while (s->running) {
@@ -1311,5 +1473,6 @@ int wm_entry(WMState *s) {
         }
     }
 
+    XSync(s->dpy, True);
     return exitcode;
 }

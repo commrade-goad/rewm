@@ -38,7 +38,7 @@ struct Client {
     int basew, baseh, incw, inch, maxw, maxh, minw, minh;
     int bw;                     /* border width */
     unsigned int tags;
-    int isfloating, isurgent, isfullscreen;
+    int isfloating, isurgent, isfullscreen, issticky;
     int wasfloating;            /* floating state to restore after unfullscreen */
     int isfixed;                 /* min==max size -> never resize */
     int neverfocus;               /* WM_HINTS input=False */
@@ -52,6 +52,7 @@ struct Monitor {
     int num;
     float mfact;
     int nmaster;
+    int gappx;
     char ltsymbol[16];
     int showbar;
     int topbar;
@@ -90,6 +91,7 @@ struct WMState {
     /* atoms */
     Atom wm_protocols, wm_delete_window, wm_state, wm_take_focus;
     Atom net_wm_name, net_wm_state, net_wm_fullscreen;
+    Atom net_wm_sticky;
     Atom net_active_window, net_client_list, net_supported;
     Atom net_wm_window_type, net_wm_window_type_dialog;
     Atom net_wm_check;
