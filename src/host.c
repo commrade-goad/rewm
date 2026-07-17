@@ -152,6 +152,18 @@ static void sig_handler(int sig) {
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
 
+    char *srcpath = getenv("REWM_PATH");
+    if (!srcpath) {
+	fprintf(stderr, "rewm: REWM_PATH is not set, we dont know where are your source code at... sorry!\n");
+	return 1;
+    }
+    size_t srcsize = snprintf(NULL, 0, "%s/wm.c", srcpath);
+    char *srcloc = calloc(sizeof(srcsize), 1);
+    if (snprintf(srcloc, srcsize, "%s/wm.c", srcpath) == 0) {
+	fprintf(stderr, "rewm: failed to allocate the path on REWM_PATH... sorry!\n");
+	return 1;
+    }
+
     /* ---- signal handling ---- */
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
@@ -166,7 +178,6 @@ int main(int argc, char **argv) {
 
     /* ---- path to wm.c ---- */
     /* default: look next to the binary or in CWD */
-    const char *wm_source = "src/wm.c";
 
     typedef int (*wm_entry_fn)(WMState *);
 
@@ -179,7 +190,7 @@ int main(int argc, char **argv) {
     long wm_mtime = 0;
     {
         struct stat st;
-        if (stat(wm_source, &st) == 0) wm_mtime = st.st_mtime;
+        if (stat(srcloc, &st) == 0) wm_mtime = st.st_mtime;
     }
     int first = 1;
 
@@ -194,11 +205,11 @@ int main(int argc, char **argv) {
 
     /* ---- main reload loop ---- */
     while (host_running && !sig_caught) {
-        int changed = file_changed(wm_source, &wm_mtime);
+        int changed = file_changed(srcloc, &wm_mtime);
         if (first || changed || force_reload) {
             first = 0;
             force_reload = 0;
-            fprintf(stderr, "rewm: (re)compiling %s...\n", wm_source);
+            fprintf(stderr, "rewm: (re)compiling %s...\n", srcloc);
 
             /* Build the candidate in a brand-new context. The old
              * context (and its still-valid wm_entry) is left alone
@@ -208,7 +219,7 @@ int main(int argc, char **argv) {
             if (new_rc) {
                 rewm_set_optimize_level(new_rc, 3);
                 new_entry = (wm_entry_fn)
-                    rewm_compile_and_get(new_rc, wm_source, "wm_entry");
+                    rewm_compile_and_get(new_rc, srcloc, "wm_entry");
             }
 
             if (!new_entry) {
@@ -247,6 +258,7 @@ int main(int argc, char **argv) {
 
     if (rc) rewm_compiler_destroy(rc);
     wm_cleanup(&state);
+    free(srcloc);
     fprintf(stderr, "rewm: bye\n");
     return 0;
 }
