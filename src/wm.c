@@ -1023,12 +1023,14 @@ static Client *createclient(WMState *s, Window w, XWindowAttributes *wa) {
     XMoveResizeWindow(s->dpy, c->win, c->x + 2 * s->sw, c->y, (unsigned)c->w, (unsigned)c->h);
     setclientstate(s, c, NormalState);
 
-    if (s->sel)
-	unfocus(s, s->sel, 0);
-
-    XMapWindow(s->dpy, w);
+    if (c->mon == s->selmon) {
+	if (s->sel)
+	    unfocus(s, s->sel, 0);
+	s->sel = c;
+    }
     arrange(s, c->mon);
-    focus(s, c);
+    XMapWindow(s->dpy, w);
+    focus(s, NULL);
     return c;
 }
 
@@ -1239,11 +1241,18 @@ static void focusin(WMState *s, XEvent *e) {
 }
 
 static void motionnotify(WMState *s, XEvent *e) {
-    static Monitor *mon = NULL;
     XMotionEvent *ev = &e->xmotion;
-    Monitor *m;
     if (ev->window != s->root) return;
-    m = recttomon(s, ev->x_root, ev->y_root, 1, 1);
+
+    if (ev->subwindow) {
+	Client *c = wintoclient(s, ev->subwindow);
+	if (c && c != s->sel)
+	    focus(s, c);
+	return;
+    }
+
+    static Monitor *mon = NULL;
+    Monitor *m = recttomon(s, ev->x_root, ev->y_root, 1, 1);
     if (m && m != s->selmon) {
 	if (mon)
 	    unfocus(s, s->sel, 1);
