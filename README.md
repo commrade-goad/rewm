@@ -1,152 +1,125 @@
-# rewm — JIT-reloadable window manager
+# rewm — JIT-reloadable X11 window manager
 
-A minimal dwm-style X11 window manager where the core logic is
-**JIT-compiled at runtime** via [c2mir/MIR](https://github.com/commrade-goad/cmm).
+`rewm` is a minimal, **dwm-style X11 window manager** where WM logic is compiled at runtime using a CMM/MIR JIT pipeline.
 
-Edit `src/wm.c`, save, and the WM hot-reloads — no restart, no lost windows.
+Instead of rebuilding and restarting the WM for every logic change, you edit the WM source and reload behavior through the host/JIT flow.
+By this design you are not only stuck with the default dwm-style wm, you can modify the `src/wm.c` live to make it floating wm etc...
 
-## Architecture
+There is limitation if you need add/load more libs, you need to edit the build.c to link with that lib on the native apps for now... (will be worked on in the future!)
 
-```
-┌──────────────────────────────────────────────────┐
-│                 rewm (native binary)              │
-│                                                   │
-│  src/host.c                                       │
-│    ├── XOpenDisplay / XSelectInput                │
-│    ├── init WMState (heap, survive reload)        │
-│    └── loop:                                      │
-│          ├── rewm_compile("src/wm.c")              │
-│          ├── call wm_entry(&state)                 │
-│          └── if RELOAD → re-compile → loop         │
-│                                                   │
-│  src/c2mir-lib.c  — wrapper:                     │
-│    ├── c2mir_compile() → MIR modules              │
-│    ├── MIR_gen() → native code                     │
-│    └── import_resolver (X11/libc symbols)          │
-└──────────────────────┬───────────────────────────┘
-                       │ WMState* (native heap)
-┌──────────────────────▼───────────────────────────┐
-│  wm.c (JIT-compiled, hot-reloadable)              │
-│                                                   │
-│  wm_entry(WMState *s):                            │
-│    ├── grab keys / buttons                        │
-│    ├── XNextEvent loop                            │
-│    ├── keypress / buttonpress / maprequest / etc  │
-│    ├── client management (create/destroy/focus)   │
-│    ├── layouts (tile, monocle, floating)          │
-│    └── return REWM_QUIT / REWM_RELOAD             │
-└──────────────────────────────────────────────────┘
-```
+---
+
+## Important warning
+
+This WM can use **more RAM than expected**.  
+It is effectively a **C compiler/runtime pipeline bundled with X11/window-management libraries**, not just a tiny static WM binary.
+
+If you want extremely low memory overhead, this design may not match your expectations  and just use dwm.
+
+---
+
+## What it is
+
+- Native host process managing X11 connection and lifecycle
+- Runtime compilation of WM logic (`src/wm.c`) through CMM/MIR
+- Reload-oriented architecture where runtime state is designed to survive recompiles
+- Tile/monocle/floating style behavior (based on current project docs)
+
+---
+
+## High-level architecture
+
+- **Host layer** (native binary):
+  - Initializes display and WM state
+  - Compiles/recompiles WM logic
+  - Enters WM entrypoint and handles reload loop
+
+- **JIT/compiler layer**:
+  - Compiles WM source at runtime
+  - Resolves required symbols (X11/libc/etc.)
+  - Produces executable machine code
+
+- **WM logic layer** (`src/wm.c`):
+  - Event loop and key/mouse handling
+  - Client/window lifecycle
+  - Layout behavior (tile/monocle/floating)
+  - Returns control flags like reload/quit
+
+---
+
+## Requirements
+
+If the included CMM is not compatible please just build [CMM](https://github.com/commrade-goad/cmm) and copy it to deps!
+
+Typical Linux/X11 dependencies:
+
+- `gcc`
+- `libX11`
+- `libXft`
+- `fontconfig`
+- `libXinerama`
+- standard C runtime/development tooling (`dl`, `m`, `pthread` link deps where needed)
+
+> Package names vary by distribution (`-dev` / `-devel` variants).
+
+---
 
 ## Build
 
-```sh
-# from source:
-gcc -x c -o nob build.cmm -ldl -lm -lpthread
-./nob
+From repository root:
 
-# run (must be in an X session):
-./rewm
+```sh
+gcc build.c -o nob
+./nob
 ```
 
-Requires: `gcc`, `libX11`, `libXft`, `fontconfig`, `libXinerama`.
+This should produce the `rewm` executable.
 
-## Hot-reload
+---
 
-1. Edit `src/wm.c`
-2. Save — the host detects mtime change
-3. MIR context is torn down and re-created
-4. `wm.c` is recompiled and `wm_entry` re-entered
-5. **WMState stays intact** — all windows, monitors, focus preserved
+## Launch
 
-To trigger reload from inside the WM: bind a key that returns `REWM_RELOAD`
-(currently unused — for v2).
+Use this example to launch rewm:
 
-## Features (current)
+```sh
+export REWM_PATH="$HOME/Documents/dev/rewm/src/"
+export REWM_CFLAGS="-I/usr/include/freetype2"
+exec $HOME/Documents/dev/rewm/rewm &> /tmp/rewmlog
+```
 
-| Feature | Status |
-|---|---|
-| Tile layout | ✅ |
-| Monocle layout | ✅ |
-| Floating layout | ✅ |
-| Keybindings | ✅ (hardcoded — see below) |
-| Client create/destroy/focus | ✅ |
-| Border highlights on focus | ✅ |
-| Multi-tag support (1–9) | ✅ |
-| Hot-reload on file change | ✅ |
-| spawn terminal / dmenu | ✅ |
-| Mouse move/resize | 🔶 (basic) |
-| Status bar | ❌ |
-| Systray | ❌ |
-| Xinerama multi-monitor | ❌ (single monitor) |
-| Config file (config.h) | ❌ (hardcoded) |
-| Rules (window class matching) | ❌ |
-| EWMH/NetWM hints | ❌ (partial) |
-| drw drawing library | ❌ |
-| Fonts & color schemes | ❌ |
-| Mouse button bindings | ❌ |
-| Stack-based focus history | ❌ |
-| Fullscreen toggle | ❌ |
-| Status text via stdin | ❌ |
+---
 
-### Keybindings (hardcoded)
+## Hot-reload workflow
 
-| Key | Action |
-|---|---|
-| `Mod+Return` | spawn terminal (`st`) |
-| `Mod+p` | spawn dmenu (`dmenu_run`) |
-| `Mod+q` | quit WM |
-| `Mod+j` / `Mod+k` | focus next / prev client |
-| `Mod+Tab` | cycle focus |
-| `Mod+h` / `Mod+l` | decrease / increase master area |
-| `Mod+1`…`Mod+9` | switch to tag |
-| `Mod+Button1` | move window |
-| `Mod+Button3` | resize window |
+1. Start `rewm`
+2. Edit WM logic source (typically `src/wm.c`)
+3. Trigger/allow reload path
+4. Host recompiles and re-enters WM logic
+5. WM state is intended to persist across reloads
 
-Mod = Super (Mod4).
+---
 
-## What was cut from dwm
+## Current feature snapshot
 
-`wm.c` is **434 lines** vs dwm's ~3200 (dwm.c + drw.c + util.c).
-Removed to keep the initial JIT port minimal:
+Based on current repository documentation:
 
-- **drw** (drawing library) — the full text rendering / color / font layer.
-  Requires Xft/fontconfig which adds library symbol resolution complexity
-  for the JIT import resolver.
-- **Status bar** — no bar drawing, no layout symbol, no window title,
-  no status text, no systray.
-- **config.h** — keybindings, rules, layouts, colors, fonts are all
-  hardcoded in wm.c.  A future version will read a C config file
-  that's also JIT-compiled alongside wm.c.
-- **Rules** — auto-tagging or floating windows by class/instance/title.
-- **Xinerama** — single monitor only.  Multi-mon via `XineramaQueryScreens`
-  is straightforward to add back.
-- **Mouse button bindings** — clicking on tags/layout symbols on the bar.
-  (No bar → no clicks.)
-- **Fullscreen / EWMH** — `_NET_WM_STATE_FULLSCREEN`, `_NET_ACTIVE_WINDOW`,
-  and friends are declared in WMState but not fully wired.
-- **Stack-based focus history** — dwm's `stack` for Alt+Tab ordering.
-  wm.c cycles by linked-list order instead.
-- **Floating window drag** — no `mousemove`/`mouseresize` handlers yet.
-- **Updatestatus / signal-driven status** — dwm reads status text from
-  stdin and refreshes on `SIGUSR1`.
-- **XResources** — no `.Xresources` reload.
-- **Gaps patch** — the `gappx` variable is declared in the Monitor struct
-  and initialised, but the tile/monocle layouts don't apply gaps.
+- ✅ Tile layout
+- ✅ Monocle layout
+- ✅ Floating layout
+- ✅ Keybindings (hardcoded)
+- ✅ Client create/destroy/focus
+- ✅ Multi-tag support (1–9)
+- ✅ Hot-reload on file change
+- ✅ Spawn terminal / dmenu
+- ✅ Basic mouse move/resize
+- ✅ Status bar
+- ❌ Systray (will not add!)
 
-## Why JIT? / Prior art
+---
 
-The usual dwm config story: edit `config.h` → `make` → `kill -HUP` → lose
-all windows.  With the JIT approach the X11 connection and all client state
-live in the native heap (`host.c`), while the actual WM logic (event loop,
-layouts, keybindings) lives in a `.c` file that gets compiled to MIR and
-JIT-executed by c2mir.  Editing the logic means the host tears down the
-MIR context, re-reads the file, re-compiles, and calls the entry point
-again — state intact.
+## Notes
 
-Performance is near-native after the MIR codegen pass (O3 equivalent)
-and compile times are in the low milliseconds.
-
-## License
-
-MIT (see [dwm's original MIT license](https://git.suckless.org/dwm/file/LICENSE.html)).
+- This project is experimental by nature due to runtime compilation architecture.
+- Behavior and keybindings may change rapidly.
+- Expect rough edges compared to mature static WMs.
+- As the dev i too _dogfooding_ this wm right now 🗿.
