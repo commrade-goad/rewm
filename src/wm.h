@@ -33,6 +33,21 @@ typedef struct Client  Client;
 typedef struct Monitor Monitor;
 typedef struct WMState WMState;
 
+/* ---- font fallback chain -------------------------------------------------
+ * A singly-linked list of fonts, tried in order per-codepoint (see
+ * fontforchar() in wm.c). fonts[0] (the head) is the primary font
+ * used for metrics (ascent/descent -> bar height, lrpad, etc), and
+ * its `pattern` seeds dynamic XftFontMatch() lookups for glyphs none
+ * of the configured fonts cover. `pattern` is only set on fonts
+ * loaded by name (xfont_create's fontname path) -- fonts discovered
+ * dynamically via XftFontMatch don't need one, they're leaves. */
+typedef struct Fnt Fnt;
+struct Fnt {
+    Fnt *next;
+    XftFont *xfont;
+    FcPattern *pattern;
+};
+
 /* ---- client ------------------------------------------------------------- */
 struct Client {
     char name[256];
@@ -114,7 +129,7 @@ struct WMState {
     Drawable drawable;          /* shared scratch pixmap for bar rendering */
     unsigned int draww, drawh;  /* current scratch pixmap size */
     XftDraw *xftdraw;           /* bound to `drawable` */
-    XftFont *xftfont;           /* single font for now, no fallback chain yet */
+    Fnt *fonts;                 /* fallback chain, primary font = fonts (head) */
     XftColor xftcol[SchemeLast][ColLast];
     int fonth;                  /* font pixel height */
     int barheight;

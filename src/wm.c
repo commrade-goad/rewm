@@ -34,6 +34,7 @@
 #include <X11/Xutil.h>
 #include <X11/Xproto.h>
 #include <X11/XF86keysym.h>
+#include <fontconfig/fontconfig.h>
 
 /* =========================================================================
  *  Config
@@ -42,21 +43,24 @@
 #define TERMINAL          "st"
 #define LAUNCHER          "tmenu_runner"
 #define TAGMASK           ((1 << 9) - 1)
-#define FONTNAME          "monospace:size=11"
+static const char *fontnames[] = {
+    "SeriousShanns Nerd Font:size=11",
+};
+
 #define BARHEIGHT_PAD     4      /* extra px added to font height for bar */
-#define COL_NORM_BG       "#222222"
-#define COL_NORM_FG       "#bbbbbb"
-#define COL_NORM_BORDER   "#444444"
-#define COL_SEL_BG        "#333333"
-#define COL_SEL_FG        "#eeeeee"
-#define COL_SEL_BORDER    "#5577cc"
+#define COL_NORM_BG       "#1D1C19"
+#define COL_NORM_FG       "#E2D5C0"
+#define COL_NORM_BORDER   "#463F34"
+#define COL_SEL_BG        "#CCB998"
+#define COL_SEL_FG        "#1D1C19"
+#define COL_SEL_BORDER    "#CCB998"
 #define DEFAULT_MFACT     0.55f
 #define DEFAULT_NMASTER   1
 #define DEFAULT_GAP       4
 #define DEFAULT_RESIZEHINTS  1
 #define DEFAULT_LOCKFULLSCREEN 1
 #define DEFAULT_REFRESHRATE 0
-#define TITLE_MAX_CHARS    64    /* max UTF-8 codepoints of client title in bar */
+#define TITLE_MAX_CHARS    128    /* max UTF-8 codepoints of client title in bar */
 
 static const char *tagnames[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
 
@@ -192,11 +196,12 @@ static Layout layouts[] = {
     { MODKEY|ShiftMask,      KEY, tagclient,  {.ui = 1 << (TAG)} },     \
     { MODKEY|ControlMask|ShiftMask, KEY, toggletag, {.ui = 1 << (TAG)} }
 
-static const char *termcmd[]  = { TERMINAL,                                 NULL };
-static const char *dmenucmd[] = { TERMINAL, "-c", "dialog", "-e", LAUNCHER, NULL };
-static const char *zoomcmd[]  = { "boomer",                                 NULL };
-static const char *editcmd[]  = { "emacs",                                  NULL };
-static const char *webcmd[]   = { "firefox-bin",                            NULL };
+static const char *termcmd[]  = { TERMINAL,                                       NULL };
+static const char *dmenucmd[] = { TERMINAL, "-c", "dialog", "-e", LAUNCHER,       NULL };
+static const char *zoomcmd[]  = { "boomer",                                       NULL };
+static const char *editcmd[]  = { "emacs",                                        NULL };
+static const char *webcmd[]   = { "firefox-bin",                                  NULL };
+static const char *emojicmd[] = { TERMINAL, "-c", "dialog", "-e", "dmenumoji"   , NULL };
 
 /* media keys */
 static const char *up_vol[]       = { "pamixer-wrapper",       "raise",                         NULL };
@@ -213,11 +218,12 @@ static const char *screenshot[]       = { "/bin/sh", "-c", "xsc.sh", NULL };
 static const char *screenshot_sel[]   = { "/bin/sh", "-c", "xscsel.sh", NULL };
 
 static Key keys[] = {
-    { MODKEY,                XK_Return, spawn,          {.v = termcmd} },
+    { MODKEY,                XK_Return, spawn,          {.v = termcmd } },
     { MODKEY,                XK_p,      spawn,          {.v = dmenucmd} },
-    { MODKEY,                XK_e,      spawn,          {.v = editcmd} },
-    { MODKEY,                XK_w,      spawn,          {.v = webcmd} },
-    { MODKEY|ShiftMask,      XK_z,      spawn,          {.v = zoomcmd} },
+    { MODKEY,                XK_e,      spawn,          {.v = editcmd } },
+    { MODKEY,                XK_w,      spawn,          {.v = webcmd  } },
+    { MODKEY|ShiftMask,      XK_z,      spawn,          {.v = zoomcmd } },
+    { MODKEY,                XK_period, spawn,          {.v = emojicmd} },
     { MODKEY|ShiftMask,      XK_q,      killclient,     {0} },
     { MODKEY|ShiftMask,      XK_e,      quit,           {0} },
     { MODKEY|ShiftMask,      XK_r,      reload_wm,      {0} },
@@ -321,24 +327,153 @@ static void setupcolors(WMState *s) {
     allocxftcolor(s, SchemeSel,  ColBorder, COL_SEL_BORDER);
 }
 
-static void setupfont(WMState *s) {
-    /* Close the old font before loading a new one (for hot-reload) */
-    if (s->xftfont) {
-	XftFontClose(s->dpy, s->xftfont);
-	s->xftfont = NULL;
+/* This function is an implementation detail -- callers should use
+ * setupfont() (initial load) or getfontforchar() (dynamic fallback).
+ * Ported from dwm's drw.c xfont_create(). */
+static Fnt *xfont_create(WMState *s, const char *fontname, FcPattern *fontpattern) {
+    XftFont *xfont = NULL;
+    FcPattern *pattern = NULL;
+
+    if (fontname) {
+	/* Using the pattern found at xfont->pattern does not yield the
+	 * same substitution results as using the pattern returned by
+	 * FcNameParse; using the latter results in the desired fallback
+	 * behaviour whereas the former just results in missing-character
+	 * rectangles being drawn, at least with some fonts. */
+	if (!(xfont = XftFontOpenName(s->dpy, s->screen, fontname))) {
+	    fprintf(stderr, "rewm: cannot load font from name: '%s'\n", fontname);
+	    return NULL;
+	}
+	if (!(pattern = FcNameParse((FcChar8 *)fontname))) {
+	    fprintf(stderr, "rewm: cannot parse font name to pattern: '%s'\n", fontname);
+	    XftFontClose(s->dpy, xfont);
+	    return NULL;
+	}
+    } else if (fontpattern) {
+	if (!(xfont = XftFontOpenPattern(s->dpy, fontpattern))) {
+	    fprintf(stderr, "rewm: cannot load font from pattern\n");
+	    return NULL;
+	}
+	/* pattern stays NULL here -- this Fnt is a dynamically-found
+	 * fallback leaf, not something we'd ever seed another lookup
+	 * from (see the "first font must be loaded from a string"
+	 * assumption in getfontforchar()). */
+    } else {
+	fprintf(stderr, "rewm: xfont_create: no font specified\n");
+	return NULL;
     }
 
-    s->xftfont = XftFontOpenName(s->dpy, s->screen, FONTNAME);
-    if (!s->xftfont)
-	s->xftfont = XftFontOpenName(s->dpy, s->screen, "fixed");
-    if (s->xftfont) {
-	s->fonth = s->xftfont->ascent + s->xftfont->descent;
+    Fnt *font = calloc(1, sizeof(Fnt));
+    font->xfont = xfont;
+    font->pattern = pattern;
+    return font;
+}
+
+static void xfont_free(WMState *s, Fnt *font) {
+    if (!font) return;
+    if (font->pattern) FcPatternDestroy(font->pattern);
+    XftFontClose(s->dpy, font->xfont);
+    free(font);
+}
+
+static void freefonts(WMState *s) {
+    while (s->fonts) {
+	Fnt *f = s->fonts;
+	s->fonts = f->next;
+	xfont_free(s, f);
+    }
+}
+
+/* fonts[i] in fontnames[] are tried first, in order; anything not
+ * covered by them falls through to a dynamic per-codepoint
+ * XftFontMatch() lookup (see getfontforchar()) instead of just
+ * drawing tofu -- so one primary font here is usually enough. */
+static void setupfont(WMState *s) {
+    /* Close the old chain before loading a new one (for hot-reload) */
+    freefonts(s);
+
+    for (int i = (int)LENGTH(fontnames) - 1; i >= 0; i--) {
+	Fnt *f = xfont_create(s, fontnames[i], NULL);
+	if (!f) continue;
+	f->next = s->fonts;
+	s->fonts = f;
+    }
+
+    if (!s->fonts) {
+	/* everything configured failed to load -- last resort */
+	Fnt *f = xfont_create(s, "fixed", NULL);
+	if (f) s->fonts = f;
+    }
+
+    if (s->fonts) {
+	s->fonth = s->fonts->xfont->ascent + s->fonts->xfont->descent;
     } else {
-	fprintf(stderr, "rewm: cannot load font '%s', falling back to 12px\n", FONTNAME);
+	fprintf(stderr, "rewm: no fonts loaded at all, bar will be broken\n");
 	s->fonth = 12;
     }
     s->lrpad = s->fonth;
     s->barheight = s->fonth + BARHEIGHT_PAD;
+}
+
+/* find a font covering `rune`: first check the already-loaded chain,
+ * then fall back to a dynamic fontconfig lookup seeded from the
+ * primary font's pattern, caching whatever's found onto the tail of
+ * the chain so the expensive XftFontMatch call only happens once per
+ * codepoint. A small negative-result cache (`nomatches`) avoids
+ * re-querying fontconfig for codepoints we already know nothing
+ * covers. Ported from dwm's drw_text() fallback path.
+ *
+ * NOTE: `nomatches` is a plain `static` (not on WMState), so it
+ * resets on every hot reload -- that's fine, it's purely a perf
+ * cache, not correctness-affecting. */
+static Fnt *getfontforchar(WMState *s, FcChar32 rune) {
+    static unsigned int nomatches[128];
+    unsigned int hash, h0, h1;
+
+    for (Fnt *f = s->fonts; f; f = f->next)
+	if (XftCharExists(s->dpy, f->xfont, rune))
+	    return f;
+
+    /* none of the loaded fonts have it -- ask fontconfig, unless we
+     * already know this codepoint has no match anywhere */
+    hash = rune;
+    hash = ((hash >> 16) ^ hash) * 0x21F0AAAD;
+    hash = ((hash >> 15) ^ hash) * 0xD35A2D97;
+    h0 = ((hash >> 15) ^ hash) % LENGTH(nomatches);
+    h1 = (hash >> 17) % LENGTH(nomatches);
+    if (nomatches[h0] == rune || nomatches[h1] == rune)
+	return s->fonts;
+
+    if (!s->fonts || !s->fonts->pattern)
+	return s->fonts; /* nothing sane to seed the lookup from */
+
+    FcCharSet *fccharset = FcCharSetCreate();
+    FcCharSetAddChar(fccharset, rune);
+
+    FcPattern *fcpattern = FcPatternDuplicate(s->fonts->pattern);
+    FcPatternAddCharSet(fcpattern, FC_CHARSET, fccharset);
+    FcPatternAddBool(fcpattern, FC_SCALABLE, FcTrue);
+    FcConfigSubstitute(NULL, fcpattern, FcMatchPattern);
+    FcDefaultSubstitute(fcpattern);
+
+    FcResult result;
+    FcPattern *match = XftFontMatch(s->dpy, s->screen, fcpattern, &result);
+
+    FcCharSetDestroy(fccharset);
+    FcPatternDestroy(fcpattern);
+
+    if (match) {
+	Fnt *nf = xfont_create(s, NULL, match);
+	if (nf && XftCharExists(s->dpy, nf->xfont, rune)) {
+	    Fnt *tail = s->fonts;
+	    while (tail->next) tail = tail->next;
+	    tail->next = nf;
+	    return nf;
+	}
+	if (nf) xfont_free(s, nf);
+	nomatches[nomatches[h0] ? h1 : h0] = rune;
+    }
+    return s->fonts;
 }
 
 /* Shared off-screen scratch pixmap that every drawbar() call draws
@@ -386,12 +521,21 @@ static void setupcursors(WMState *s) {
 
 static int textwidth(WMState *s, const char *text) {
     if (!text || !*text) return s->lrpad;
-    if (s->xftfont) {
+    if (!s->fonts) return (int)strlen(text) * 6 + s->lrpad;
+
+    int w = 0;
+    const char *p = text;
+    while (*p) {
+	FcChar32 rune;
+	int clen = FcUtf8ToUcs4((FcChar8 *)p, &rune, (int)strlen(p));
+	if (clen <= 0) clen = 1;
+	Fnt *f = getfontforchar(s, rune);
 	XGlyphInfo ext;
-	XftTextExtentsUtf8(s->dpy, s->xftfont, (const FcChar8 *)text, (int)strlen(text), &ext);
-	return ext.xOff + s->lrpad;
+	XftTextExtentsUtf8(s->dpy, f->xfont, (const FcChar8 *)p, clen, &ext);
+	w += ext.xOff;
+	p += clen;
     }
-    return (int)strlen(text) * 6 + s->lrpad;
+    return w + s->lrpad;
 }
 
 /* =========================================================================
@@ -460,13 +604,29 @@ static void truncate_utf8(const char *src, char *dst, size_t dstsize, int max_cp
 static void drawtext(WMState *s, int x, int y, unsigned long fg, unsigned long bg,
 		     XftColor *xfg, int w, int h, const char *text) {
     (void)y;
+    (void)fg;
     XSetForeground(s->dpy, s->gc, bg);
     XFillRectangle(s->dpy, s->drawable, s->gc, x, 0, (unsigned)w, (unsigned)h);
-    (void)fg;
-    if (!text || !*text || !s->xftfont) return;
-    int ty = (h - s->fonth) / 2 + s->xftfont->ascent;
-    XftDrawStringUtf8(s->xftdraw, xfg, s->xftfont, x + s->lrpad / 2, ty,
-		      (const FcChar8 *)text, (int)strlen(text));
+    if (!text || !*text || !s->fonts) return;
+
+    /* per-glyph fallback: draw one codepoint at a time, picking
+     * whichever font in the chain actually has that glyph. No run
+     * batching -- simpler, and the bar redraws are infrequent/cheap
+     * enough that per-glyph XftDrawStringUtf8 calls don't matter. */
+    int cx = x + s->lrpad / 2;
+    const char *p = text;
+    while (*p) {
+	FcChar32 rune;
+	int clen = FcUtf8ToUcs4((FcChar8 *)p, &rune, (int)strlen(p));
+	if (clen <= 0) clen = 1;
+	Fnt *f = getfontforchar(s, rune);
+	int ty = (h - (f->xfont->ascent + f->xfont->descent)) / 2 + f->xfont->ascent;
+	XftDrawStringUtf8(s->xftdraw, xfg, f->xfont, cx, ty, (const FcChar8 *)p, clen);
+	XGlyphInfo ext;
+	XftTextExtentsUtf8(s->dpy, f->xfont, (const FcChar8 *)p, clen, &ext);
+	cx += ext.xOff;
+	p += clen;
+    }
 }
 
 static void drawbar(WMState *s, Monitor *m) {
@@ -2038,7 +2198,7 @@ static void cleanup(WMState *s) {
     }
 
     freexftcolors(s);
-    if (s->xftfont) { XftFontClose(s->dpy, s->xftfont); s->xftfont = NULL; }
+    freefonts(s);
     if (s->xftdraw) { XftDrawDestroy(s->xftdraw); s->xftdraw = NULL; }
     if (s->drawable) { XFreePixmap(s->dpy, s->drawable); s->drawable = 0; }
     if (s->gc) { XFreeGC(s->dpy, s->gc); s->gc = NULL; }
