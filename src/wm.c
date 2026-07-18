@@ -33,6 +33,7 @@
 #include <X11/keysym.h>
 #include <X11/Xutil.h>
 #include <X11/Xproto.h>
+#include <X11/XF86keysym.h>
 
 /* =========================================================================
  *  Config
@@ -198,6 +199,20 @@ static const char *zoomcmd[]  = { "boomer", NULL };
 static const char *editcmd[]  = { "emacs", NULL };
 static const char *webcmd[]   = { "firefox-bin", NULL };
 
+/* media keys */
+static const char *up_vol[]       = { "pamixer-wrapper",       "raise",                         NULL };
+static const char *down_vol[]     = { "pamixer-wrapper",       "lower",                         NULL };
+static const char *mute_vol[]     = { "pamixer-wrapper",       "toggle",                        NULL };
+static const char *mute_mic_vol[] = { "pactl", "set-source-mute", "@DEFAULT_SOURCE@", "toggle", NULL };
+
+/* brightness keys */
+static const char *brighter[]     = { "brightnessctl-wrapper", "raise",      NULL };
+static const char *dimmer[]       = { "brightnessctl-wrapper", "lower",      NULL };
+
+/* screenshot keys */
+static const char *screenshot[]       = { "/bin/sh", "-c", "xsc.sh", NULL };
+static const char *screenshot_sel[]   = { "/bin/sh", "-c", "xscsel.sh", NULL };
+
 static Key keys[] = {
     { MODKEY,                XK_Return, spawn,          {.v = termcmd} },
     { MODKEY,                XK_p,      spawn,          {.v = dmenucmd} },
@@ -217,11 +232,13 @@ static Key keys[] = {
     { MODKEY,                XK_d,      incnmaster,     {.i = -1} },
     { MODKEY|ShiftMask,      XK_Return, zoom,           {0} },
     { MODKEY,                XK_space,  setlayout,      {.i = -1} }, /* cycle */
+    { MODKEY|ShiftMask,      XK_space,  togglefloating, {0} },
     { MODKEY,                XK_t,      setlayout,      {.i = 0} },
     { MODKEY,                XK_m,      setlayout,      {.i = 1} },
     { MODKEY,                XK_f,      setlayout,      {.i = 2} },
     { MODKEY,                XK_z,      togglefloating, {0} },
     { MODKEY,                XK_u,      togglefullscreen,{0} },
+    { MODKEY|ShiftMask,      XK_f,      togglefullscreen,{0} },
     { MODKEY,                XK_s,      togglesticky,   {0} },
     { MODKEY|ShiftMask,      XK_j,      movestack,      {.i = +1} },
     { MODKEY|ShiftMask,      XK_k,      movestack,      {.i = -1} },
@@ -235,6 +252,18 @@ static Key keys[] = {
     { MODKEY,                XK_period, focusmon,       {.i = +1} },
     { MODKEY|ShiftMask,      XK_comma,  tagmon,         {.i = -1} },
     { MODKEY|ShiftMask,      XK_period, tagmon,         {.i = +1} },
+    { MODKEY,                XK_0,      view,           {.ui = ~0} },
+    { MODKEY|ShiftMask,      XK_0,      tagclient,      {.ui = ~0} },
+    /* media keys */
+    { 0, XF86XK_AudioMicMute,      spawn, {.v = mute_mic_vol} },
+    { 0, XF86XK_AudioMute,         spawn, {.v = mute_vol} },
+    { 0, XF86XK_AudioLowerVolume,  spawn, {.v = down_vol} },
+    { 0, XF86XK_AudioRaiseVolume,  spawn, {.v = up_vol} },
+    { 0, XF86XK_MonBrightnessDown, spawn, {.v = dimmer} },
+    { 0, XF86XK_MonBrightnessUp,   spawn, {.v = brighter} },
+    /* screenshot keys */
+    { 0,         XK_Print, spawn, {.v = screenshot} },
+    { ShiftMask, XK_Print, spawn, {.v = screenshot_sel} },
     TAGKEYS(XK_1, 0), TAGKEYS(XK_2, 1), TAGKEYS(XK_3, 2),
     TAGKEYS(XK_4, 3), TAGKEYS(XK_5, 4), TAGKEYS(XK_6, 5),
     TAGKEYS(XK_7, 6), TAGKEYS(XK_8, 7), TAGKEYS(XK_9, 8),
@@ -1058,21 +1087,55 @@ static void unmanage(WMState *s, Client *c, int destroyed) {
  * ========================================================================= */
 static void buttonpress(WMState *s, XEvent *e) {
     XButtonPressedEvent *ev = &e->xbutton;
+    unsigned int clickregion = 0; /* 0=unset, 1=tagbar, 2=ltsymbol, 3=wintitle, 4=status */
 
     for (Monitor *m = s->mons; m; m = m->next) {
 	if (ev->window == m->barwin) {
 	    s->selmon = m;
 	    int x = 0;
+	    /* check tag bar region */
 	    for (int i = 0; i < (int)LENGTH(tagnames); i++) {
 		int w = textwidth(s, tagnames[i]);
 		if (ev->x >= x && ev->x < x + w) {
 		    Arg a;
 		    a.ui = 1u << i;
-		    if (ev->button == Button1) view(s, &a);
-		    else if (ev->button == Button3) toggleview(s, &a);
+		    unsigned int mod = CLEANMASK(ev->state);
+		    if (mod == CLEANMASK(MODKEY)) {
+			if (ev->button == Button1) tagclient(s, &a);
+			else if (ev->button == Button3) toggletag(s, &a);
+		    } else {
+			if (ev->button == Button1) view(s, &a);
+			else if (ev->button == Button3) toggleview(s, &a);
+		    }
 		    return;
 		}
 		x += w;
+	    }
+	    /* check layout symbol region */
+	    int lw = textwidth(s, m->ltsymbol);
+	    if (ev->x >= x && ev->x < x + lw) {
+		clickregion = 2;
+		if (ev->button == Button1) {
+		    Arg a; a.i = -1; setlayout(s, &a); /* cycle */
+		} else if (ev->button == Button3) {
+		    Arg a; a.i = 1; setlayout(s, &a); /* monocle */
+		}
+		return;
+	    }
+	    x += lw;
+	    /* check status text region (right side) */
+	    int sw = textwidth(s, s->statustext);
+	    if (ev->x >= m->ww - sw) {
+		clickregion = 4;
+		if (ev->button == Button2) {
+		    Arg a; a.v = termcmd; spawn(s, &a);
+		}
+		return;
+	    }
+	    /* otherwise it's window title region */
+	    clickregion = 3;
+	    if (ev->button == Button2) {
+		Arg a; a.i = 0; zoom(s, &a);
 	    }
 	    return;
 	}
@@ -1089,6 +1152,9 @@ static void buttonpress(WMState *s, XEvent *e) {
     if (cleanmod == CLEANMASK(MODKEY) && ev->button == Button1) {
 	Arg a; a.i = 0;
 	movemouse(s, &a);
+    } else if (cleanmod == CLEANMASK(MODKEY) && ev->button == Button2) {
+	Arg a; a.i = 0;
+	togglefloating(s, &a);
     } else if (cleanmod == CLEANMASK(MODKEY) && ev->button == Button3) {
 	Arg a; a.i = 0;
 	resizemouse(s, &a);
