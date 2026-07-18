@@ -40,7 +40,7 @@
  * ========================================================================= */
 #define MODKEY            Mod4Mask
 #define TERMINAL          "st"
-#define LAUNCHER          "dmenu_run"
+#define LAUNCHER          "tmenu_runner"
 #define TAGMASK           ((1 << 9) - 1)
 #define FONTNAME          "monospace:size=11"
 #define BARHEIGHT_PAD     4      /* extra px added to font height for bar */
@@ -74,8 +74,7 @@ typedef struct {
 static const Rule rules[] = {
     /* class          instance  title     tags mask   isfloating */
     { "mpv",          NULL,     NULL,     0,           1 },
-    { "Sxiv",         NULL,     NULL,     0,           1 },
-    { "Gimp",         NULL,     NULL,     0,           1 },
+    { "dialog",       NULL,     NULL,     0,           1 },
 };
 
 typedef union {
@@ -178,26 +177,26 @@ static void monocle(WMState *s, Monitor *m);
 static void floating(WMState *s, Monitor *m);
 
 static Layout layouts[] = {
-    { "[]=",  tile },
-    { "[M]",  monocle },
-    { "><>",  floating },
+    { "<T>",  tile },
+    { "<M>",  monocle },
+    { "<F>",  floating },
 };
 #define LAYOUT_COUNT ((int)(sizeof(layouts)/sizeof(layouts[0])))
 
 /* =========================================================================
  *  Keybindings (dwm/sxwm style: MODKEY + key)
  * ========================================================================= */
-#define TAGKEYS(KEY,TAG) \
-    { MODKEY,               KEY, view,       {.ui = 1 << (TAG)} }, \
-    { MODKEY|ControlMask,    KEY, toggleview, {.ui = 1 << (TAG)} }, \
-    { MODKEY|ShiftMask,      KEY, tagclient,  {.ui = 1 << (TAG)} }, \
+#define TAGKEYS(KEY,TAG)                                                \
+    { MODKEY,               KEY, view,       {.ui = 1 << (TAG)} },      \
+    { MODKEY|ControlMask,    KEY, toggleview, {.ui = 1 << (TAG)} },     \
+    { MODKEY|ShiftMask,      KEY, tagclient,  {.ui = 1 << (TAG)} },     \
     { MODKEY|ControlMask|ShiftMask, KEY, toggletag, {.ui = 1 << (TAG)} }
 
-static const char *termcmd[]  = { TERMINAL, NULL };
-static const char *dmenucmd[] = { LAUNCHER, NULL };
-static const char *zoomcmd[]  = { "boomer", NULL };
-static const char *editcmd[]  = { "emacs", NULL };
-static const char *webcmd[]   = { "firefox-bin", NULL };
+static const char *termcmd[]  = { TERMINAL,                                 NULL };
+static const char *dmenucmd[] = { TERMINAL, "-c", "dialog", "-e", LAUNCHER, NULL };
+static const char *zoomcmd[]  = { "boomer",                                 NULL };
+static const char *editcmd[]  = { "emacs",                                  NULL };
+static const char *webcmd[]   = { "firefox-bin",                            NULL };
 
 /* media keys */
 static const char *up_vol[]       = { "pamixer-wrapper",       "raise",                         NULL };
@@ -487,17 +486,17 @@ static void drawbar(WMState *s, Monitor *m) {
 	int w = textwidth(s, tagnames[i]);
 	int scheme = sel ? SchemeSel : SchemeNorm;
 	drawtext(s, x, 0, s->col[scheme][ColFg], s->col[scheme][ColBg],
-		&s->xftcol[scheme][ColFg], w, s->barheight, tagnames[i]);
+                 &s->xftcol[scheme][ColFg], w, s->barheight, tagnames[i]);
 	if (occ & (1 << i))
 	    drawrect(s, x + 2, 2, 4, 4,
-		    (urg & (1 << i)) ? s->col[SchemeSel][ColBorder] : s->col[scheme][ColFg], 1);
+                     (urg & (1 << i)) ? s->col[SchemeSel][ColBorder] : s->col[scheme][ColFg], 1);
 	x += w;
     }
 
     /* layout symbol */
     int lw = textwidth(s, m->ltsymbol);
     drawtext(s, x, 0, s->col[SchemeNorm][ColFg], s->col[SchemeNorm][ColBg],
-	    &s->xftcol[SchemeNorm][ColFg], lw, s->barheight, m->ltsymbol);
+             &s->xftcol[SchemeNorm][ColFg], lw, s->barheight, m->ltsymbol);
     x += lw;
 
     /* status text on far right */
@@ -505,7 +504,7 @@ static void drawbar(WMState *s, Monitor *m) {
     int mid = m->ww - sw;
     if (mid < x) mid = x;
     drawtext(s, mid, 0, s->col[SchemeNorm][ColFg], s->col[SchemeNorm][ColBg],
-	    &s->xftcol[SchemeNorm][ColFg], m->ww - mid, s->barheight, s->statustext);
+             &s->xftcol[SchemeNorm][ColFg], m->ww - mid, s->barheight, s->statustext);
 
     /* selected window title fills the middle */
     int tw = mid - x;
@@ -515,16 +514,16 @@ static void drawbar(WMState *s, Monitor *m) {
 	char truncated[256];
 	truncate_utf8(raw, truncated, sizeof(truncated), TITLE_MAX_CHARS);
 	drawtext(s, x, 0, s->col[SchemeNorm][ColFg], s->col[SchemeNorm][ColBg],
-		&s->xftcol[SchemeNorm][ColFg], tw, s->barheight, truncated);
+                 &s->xftcol[SchemeNorm][ColFg], tw, s->barheight, truncated);
 	if (sel && sel->mon == m && sel->isfloating) {
-	   drawrect(s, x + 1, 2, 4, 4, s->col[SchemeNorm][ColFg], 1);
-	   // x += 6;
-	   tw = mid - x;
+            drawrect(s, x + 1, 2, 4, 4, s->col[SchemeNorm][ColFg], 1);
+            // x += 6;
+            tw = mid - x;
 	}
     }
 
     XCopyArea(s->dpy, s->drawable, m->barwin, s->gc, 0, 0,
-	     (unsigned)m->ww, (unsigned)s->barheight, 0, 0);
+              (unsigned)m->ww, (unsigned)s->barheight, 0, 0);
     XSync(s->dpy, False);
 }
 
@@ -543,7 +542,7 @@ static void updatestatus(WMState *s) {
 	if (tp.encoding == XA_STRING) {
 	    strncpy(s->statustext, (char *)tp.value, sizeof(s->statustext) - 1);
 	} else if (XmbTextPropertyToTextList(s->dpy, &tp, &list, &n) >= Success
-		&& n > 0 && list && *list) {
+                   && n > 0 && list && *list) {
 	    strncpy(s->statustext, *list, sizeof(s->statustext) - 1);
 	    XFreeStringList(list);
 	}
@@ -1403,7 +1402,7 @@ static void monocle(WMState *s, Monitor *m) {
     for (Client *c = m->clients; c; c = c->next)
 	if (isvisible(m, c)) n++;
     if (n > 0)
-	snprintf(m->ltsymbol, sizeof(m->ltsymbol), "[%d]", n);
+	snprintf(m->ltsymbol, sizeof(m->ltsymbol), "<%d>", n);
     for (Client *c = nexttiled(m->clients); c; c = nexttiled(c->next))
 	resize(s, c, m->wx, m->wy, m->ww - 2 * c->bw, m->wh - 2 * c->bw, 0);
 }
@@ -2119,10 +2118,10 @@ int wm_entry(WMState *s) {
     grabkeys(s);
     XUngrabButton(s->dpy, AnyButton, AnyModifier, s->root);
     XSelectInput(s->dpy, s->root,
-	    SubstructureRedirectMask | SubstructureNotifyMask
-	    | ButtonPressMask | PointerMotionMask
-	    | EnterWindowMask | LeaveWindowMask | StructureNotifyMask
-	    | PropertyChangeMask);
+                 SubstructureRedirectMask | SubstructureNotifyMask
+                 | ButtonPressMask        | PointerMotionMask
+                 | EnterWindowMask        | LeaveWindowMask
+                 | StructureNotifyMask    | PropertyChangeMask);
 
     focus(s, s->sel);
     arrange(s, NULL);
