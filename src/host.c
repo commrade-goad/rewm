@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include <malloc.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -159,10 +160,10 @@ static int checkotherwm(Display *dpy) {
 static void parse_cflags(rewm_compiler_t *rc) {
     const char *cflags = getenv("REWM_CFLAGS");
     if (!cflags) return;
-    
+
     char *buf = strdup(cflags);
     if (!buf) return;
-    
+
     char *token = strtok(buf, " \t");
     while (token) {
         if (strncmp(token, "-I", 2) == 0) {
@@ -176,7 +177,7 @@ static void parse_cflags(rewm_compiler_t *rc) {
         }
         token = strtok(NULL, " \t");
     }
-    
+
     free(buf);
 }
 
@@ -185,17 +186,18 @@ static void parse_cflags(rewm_compiler_t *rc) {
  * ------------------------------------------------------------------------- */
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
+    mallopt(M_MMAP_THRESHOLD, 64 * 1024);
 
     char *srcpath = getenv("REWM_PATH");
     if (!srcpath) {
-	fprintf(stderr, "rewm: REWM_PATH is not set, we dont know where are your source code at... sorry!\n");
-	return 1;
+        fprintf(stderr, "rewm: REWM_PATH is not set, we dont know where are your source code at... sorry!\n");
+        return 1;
     }
     size_t srcsize = snprintf(NULL, 0, "%s/wm.c", srcpath) + 1;
     char *srcloc = calloc(srcsize, 1);
     if (snprintf(srcloc, srcsize, "%s/wm.c", srcpath) == 0) {
-	fprintf(stderr, "rewm: failed to allocate the path on REWM_PATH... sorry!\n");
-	return 1;
+        fprintf(stderr, "rewm: failed to allocate the path on REWM_PATH... sorry!\n");
+        return 1;
     }
 
     /* ---- WM state (survives reload) ---- */
@@ -274,14 +276,17 @@ int main(int argc, char **argv) {
             wm_entry_fn new_entry = NULL;
             if (new_rc) {
                 parse_cflags(new_rc);
-                rewm_set_optimize_level(new_rc, 3);
+                rewm_set_optimize_level(new_rc, 2);
                 new_entry = (wm_entry_fn)
                     rewm_compile_and_get(new_rc, srcloc, "wm_entry");
             }
 
             if (!new_entry) {
                 fprintf(stderr, "rewm: compile failed, keeping previous version\n");
-                if (new_rc) rewm_compiler_destroy(new_rc);
+                if (new_rc) {
+                    rewm_compiler_destroy(new_rc);
+                    malloc_trim(0);
+                }
                 if (!wm_entry) {
                     /* never had a working build to fall back to yet */
                     usleep(200000); /* 200ms, avoid busy-spinning on a broken file */
@@ -290,7 +295,10 @@ int main(int argc, char **argv) {
                 /* fall through and re-run the still-live old wm_entry */
             } else {
                 /* success: swap in the new build, *then* tear down the old */
-                if (rc) rewm_compiler_destroy(rc);
+                if (rc) {
+                    rewm_compiler_destroy(rc);
+                    malloc_trim(0);
+                }
                 rc = new_rc;
                 wm_entry = new_entry;
                 if (had_success) state.reload_count++;
