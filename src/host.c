@@ -193,9 +193,9 @@ int main(int argc, char **argv) {
         fprintf(stderr, "rewm: REWM_PATH is not set, we dont know where are your source code at... sorry!\n");
         return 1;
     }
-    size_t srcsize = snprintf(NULL, 0, "%s/wm.c", srcpath) + 1;
+    size_t srcsize = snprintf(NULL, 0, "%s/wm.cmm", srcpath) + 1;
     char *srcloc = calloc(srcsize, 1);
-    if (snprintf(srcloc, srcsize, "%s/wm.c", srcpath) == 0) {
+    if (snprintf(srcloc, srcsize, "%s/wm.cmm", srcpath) == 0) {
         fprintf(stderr, "rewm: failed to allocate the path on REWM_PATH... sorry!\n");
         return 1;
     }
@@ -235,8 +235,6 @@ int main(int argc, char **argv) {
     }
 
     /* ---- path to wm.c ---- */
-    /* default: look next to the binary or in CWD */
-
     typedef int (*wm_entry_fn)(WMState *);
 
     /* ---- compiler context / currently-live wm_entry ---- */
