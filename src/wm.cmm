@@ -31,6 +31,8 @@
 /* =========================================================================
  *  Config
  * ========================================================================= */
+// Uncomment this if you want the new spawned window to be followed
+// #define FOLLOW_WINDOW_RULE
 #define MODKEY            Mod4Mask
 #define TERMINAL          "st"
 #define LAUNCHER          "tmenu_runner"
@@ -56,15 +58,18 @@ typedef struct {
     const char *title;
     unsigned int tags;
     int isfloating;
+    int monitor;
 } Rule;
 
-/* class/instance/title match -> tags/floating, like dwm's config.h rules[].
+/* class/instance/title match -> tags/floating/monitor, like dwm's config.h rules[].
  * NULL fields match anything. tags==0 keeps whatever tag was active when
  * the window was created. Edit freely -- this is your config section. */
 static const Rule rules[] = {
-    /* class          instance  title     tags mask   isfloating */
-    { "mpv",          NULL,     NULL,     0,           1 },
-    { "dialog",       NULL,     NULL,     0,           1 },
+    /* class          instance  title     tags mask   isfloating    monitor*/
+    { "mpv",          NULL,     NULL,     0,           1,           -1 },
+    { "dialog",       NULL,     NULL,     0,           1,           -1 },
+    { "firefox",      NULL,     NULL,     1<<1,        0,           -1 },
+    { "Emacs",        NULL,     NULL,     1<<0,        0,           -1 },
 };
 
 typedef union {
@@ -1125,11 +1130,16 @@ static void setfullscreen(WMState *s, Client *c, int fullscreen) {
     }
 }
 
-static void applyrules(WMState *s, Client *c) {
+/* Returns non-zero if a matching rule pinned this client to an explicit
+ * tag mask (r.tags != 0). Callers use that to know whether they should
+ * follow the client to its assigned workspace/monitor instead of leaving
+ * it to open silently wherever it isn't currently being looked at. */
+static int applyrules(WMState *s, Client *c) {
     XClassHint ch = { NULL, NULL };
     XGetClassHint(s.dpy, c.win, &ch);
     const char *class    = ch.res_class ? ch.res_class : "broken";
     const char *instance = ch.res_name  ? ch.res_name  : "broken";
+    int tagrule = 0;
 
     for (int i = 0; i < (int)LENGTH(rules); i++) {
 	const Rule *r = &rules[i];
@@ -1138,6 +1148,15 @@ static void applyrules(WMState *s, Client *c) {
 	    && (!r.instance || strstr(instance, r.instance))) {
 	    c.isfloating = r.isfloating;
 	    c.tags |= r.tags;
+	    if (r.tags) tagrule = 1;
+	    if (r.monitor >= 0) {
+		for (Monitor *m = s.mons; m; m = m.next) {
+		    if (m.num == r.monitor) {
+			c.mon = m;
+			break;
+		    }
+		}
+	    }
 	}
     }
     if (ch.res_class) XFree(ch.res_class);
@@ -1146,6 +1165,7 @@ static void applyrules(WMState *s, Client *c) {
     if (c.mon) {
 	c.tags = (c.tags & TAGMASK) ? (c.tags & TAGMASK) : c.mon.tagset[c.mon.seltags];
     }
+    return tagrule;
 }
 
 static Client *createclient(WMState *s, Window w, XWindowAttributes *wa) {
@@ -1165,12 +1185,13 @@ static Client *createclient(WMState *s, Window w, XWindowAttributes *wa) {
 
     Window trans = None;
     Client *parent = NULL;
+    int ruletagged = 0;
     if (XGetTransientForHint(s.dpy, w, &trans) && (parent = wintoclient(s, trans))) {
 	c.isfloating = 1;
 	c.mon = parent.mon;
 	c.tags = parent.tags;
     } else {
-	applyrules(s, c);
+	ruletagged = applyrules(s, c);
     }
 
     updatewindowtype(s, c);
@@ -1196,14 +1217,35 @@ static Client *createclient(WMState *s, Window w, XWindowAttributes *wa) {
     XMoveResizeWindow(s.dpy, c.win, c.x + 2 * s.sw, c.y, (unsigned)c.w, (unsigned)c.h);
     setclientstate(s, c, NormalState);
 
+    #ifdef FOLLOW_WINDOW_RULE
+    if (ruletagged && c.mon) {
+	/* A rule pinned this client to an explicit tag (and maybe a
+	 * different monitor). Without this, the client would spawn on a
+	 * workspace/monitor that isn't visible, the bar would keep showing
+	 * the previously selected tag, and focus would stay wherever it
+	 * was -- i.e. the window opens "behind your back". Jump the view
+	 * there instead, dwm-rule style. */
+	s.selmon = c.mon;
+	if (!(c.tags & c.mon.tagset[c.mon.seltags])) {
+	    c.mon.seltags ^= 1;
+	    c.mon.tagset[c.mon.seltags] = c.tags & TAGMASK;
+	}
+    }
+    #endif // FOLLOW_WINDOW_RULE
+
     if (c.mon == s.selmon) {
 	if (s.sel)
 	    unfocus(s, s.sel, 0);
 	s.sel = c;
     }
     arrange(s, c.mon);
+    drawbars(s);
     XMapWindow(s.dpy, w);
+    #ifdef FOLLOW_WINDOW_RULE
+    focus(s, ruletagged ? c : NULL);
+    #else
     focus(s, NULL);
+    #endif // FOLLOW_WINDOW_RULE
     return c;
 }
 

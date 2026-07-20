@@ -17,7 +17,7 @@
 const char *cflags[] = {
     "-I.", "-Isrc", "-Ideps/cmm", "-Ideps/cmm/c2mir", "-I/usr/include/freetype2",
     "-MMD", "-MP", "-g",
-    "-std=gnu11", "-O3",
+    "-std=gnu11", "-O2",
     "-DNDEBUG", "-DC2MIR_PARALLEL",
 };
 const int ncflags = sizeof cflags / sizeof cflags[0];
@@ -30,7 +30,7 @@ const char *srcs[] = {
     "src/c2mir-lib.c",
     "deps/cmm/mir.c",
     "deps/cmm/mir-gen.c",
-    "deps/cmm/c2mir.c",
+    "deps/cmm/c2mir/c2mir.c",
 };
 const int nsrcs = sizeof srcs / sizeof srcs[0];
 
