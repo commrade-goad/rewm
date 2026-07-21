@@ -1,9 +1,3 @@
-/* wm.h — shared types between host.c (native) and wm.c (JIT-compiled)
- *
- * WMState lives on the native heap (allocated by host.c).  A pointer
- * to it is passed into every JIT entry point so that state survives
- * across module reloads.
- */
 #ifndef WM_H
 #define WM_H
 
@@ -21,26 +15,15 @@
     (int)(MAX(0, MIN((x)+(w),(m)->wx+(m)->ww) - MAX((x),(m)->wx)) * \
           MAX(0, MIN((y)+(h),(m)->wy+(m)->wh) - MAX((y),(m)->wy)))
 
-/* ---- status codes returned by wm_entry --------------------------------- */
-enum { REWM_OK, REWM_RELOAD, REWM_QUIT };
 
-/* ---- color scheme slots -------------------------------------------------- */
+enum { REWM_OK, REWM_RELOAD, REWM_QUIT };
 enum { SchemeNorm, SchemeSel, SchemeLast };
 enum { ColFg, ColBg, ColBorder, ColLast };
 
-/* ---- forward declarations ----------------------------------------------- */
 typedef struct Client  Client;
 typedef struct Monitor Monitor;
 typedef struct WMState WMState;
 
-/* ---- font fallback chain -------------------------------------------------
- * A singly-linked list of fonts, tried in order per-codepoint (see
- * fontforchar() in wm.c). fonts[0] (the head) is the primary font
- * used for metrics (ascent/descent -> bar height, lrpad, etc), and
- * its `pattern` seeds dynamic XftFontMatch() lookups for glyphs none
- * of the configured fonts cover. `pattern` is only set on fonts
- * loaded by name (xfont_create's fontname path) -- fonts discovered
- * dynamically via XftFontMatch don't need one, they're leaves. */
 typedef struct Fnt Fnt;
 struct Fnt {
     Fnt *next;
@@ -48,28 +31,26 @@ struct Fnt {
     FcPattern *pattern;
 };
 
-/* ---- client ------------------------------------------------------------- */
 struct Client {
     char name[256];
     Window win;
-    int x, y, w, h;             /* geometry */
+    int x, y, w, h;              /* geometry */
     int oldx, oldy, oldw, oldh;  /* saved geometry (pre-fullscreen / float toggle) */
     int oldbw;
     int basew, baseh, incw, inch, maxw, maxh, minw, minh;
-    float mina, maxa;             /* aspect ratio hints */
-    int bw;                     /* border width */
+    float mina, maxa;            /* aspect ratio hints */
+    int bw;                      /* border width */
     unsigned int tags;
     int isfloating, isurgent, isfullscreen, issticky;
     int wasfloating;            /* floating state to restore after unfullscreen */
-    int isfixed;                 /* min==max size -> never resize */
-    int neverfocus;               /* WM_HINTS input=False */
-    int hintsvalid;              /* size hints cache flag */
-    Client *next;                /* monitor client list */
-    Client *snext;               /* stack (focus/raise order) */
+    int isfixed;                /* min==max size -> never resize */
+    int neverfocus;             /* WM_HINTS input=False */
+    int hintsvalid;             /* size hints cache flag */
+    Client *next;               /* monitor client list */
+    Client *snext;              /* stack (focus/raise order) */
     Monitor *mon;
 };
 
-/* ---- monitor ------------------------------------------------------------ */
 struct Monitor {
     int num;
     float mfact;
@@ -89,13 +70,11 @@ struct Monitor {
     Window barwin;
 };
 
-/* ---- layout plug -------------------------------------------------------- */
 typedef struct {
     const char *symbol;
     void (*arrange)(WMState *, Monitor *);
 } Layout;
 
-/* ---- all persistent state ----------------------------------------------- */
 struct WMState {
     /* X11 */
     Display *dpy;
@@ -119,9 +98,6 @@ struct WMState {
     Atom net_wm_check;
     Atom utf8_string;
 
-    /* bar / drawing (Xft-backed, mirrors your drw.c: one shared
-     * off-screen scratch pixmap, resized as needed, XCopyArea'd onto
-     * whichever monitor's barwin is being redrawn) */
     GC gc;
     Visual *visual;
     Colormap cmap;
@@ -136,31 +112,16 @@ struct WMState {
     int lrpad;                  /* left+right text padding */
     unsigned long col[SchemeLast][ColLast]; /* plain pixel values, for GC rect fills */
 
-    /* cursors */
     Cursor cur_normal, cur_move, cur_resize;
 
-    /* status text shown on the right of the bar (set via WM_NAME on root) */
-    char statustext[256];
-
-    /* EWMH support window */
+    char statustext[256]; // NOTE: if neede make this bigger (for longer status text)
     Window wmcheckwin;
-
-    /* geometry */
-    unsigned int borderpx;
-    int snap;
-    int bx, by, bw, bh;         /* bar geometry (unused, kept for compat) */
-
-    /* config options */
-    int resizehints;             /* 1 = respect size hints for tiled windows */
-    int lockfullscreen;          /* 1 = prevent focus change from fullscreen */
-    int refreshrate;             /* throttle move/resize (ms) */
 
     /* runtime flags */
     int running;
     int initialized;            /* one-time setup guard, survives reloads */
     volatile int sig_caught;    /* set by signal handler, checked by event loop */
 
-    /* last reload status — host sets before each entry call */
     int reload_count;
 };
 

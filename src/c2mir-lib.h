@@ -4,7 +4,7 @@
 
 #include <stddef.h>
 #include "../deps/cmm/mir.h"
-#include "../deps/cmm/c2mir.h"
+#include "../deps/cmm/c2mir/c2mir.h"
 
 typedef struct rewm_compiler rewm_compiler_t;
 

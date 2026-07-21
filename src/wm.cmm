@@ -1,16 +1,3 @@
-/* wm.cmm
- * JIT window manager logic
- *
- * This file is compiled by c2mir (JIT) every load/reload.  It receives
- * a pointer to WMState which lives on the native heap and survives
- * across reloads.  Heavy one-time X resources (GC, font, cursors, the
- * bar window, EWMH check window) are guarded by s.initialized so a
- * hot reload just swaps behaviour, not X state.
- *
- * All X11 calls resolve via the import resolver (RTLD_DEFAULT) from
- * host's libX11 linkage.
- */
-
 #define _DEFAULT_SOURCE
 #include "wm.h"
 
@@ -41,15 +28,21 @@ static const char *fontnames[] = {
     "Iosevka:size=11",
 };
 
-#define BARHEIGHT_PAD     4      /* extra px added to font height for bar */
-#define DEFAULT_MFACT     0.55f
-#define DEFAULT_NMASTER   1
-#define DEFAULT_GAP       4
-#define DEFAULT_RESIZEHINTS  1
+#define BORDER_PX              2
+#define SNAP_REGION            32
+#define BARHEIGHT_PAD          4
+#define DEFAULT_MFACT          0.55f
+#define DEFAULT_NMASTER        1
+#define DEFAULT_GAP            4
+#define DEFAULT_RESIZEHINTS    1
 #define DEFAULT_LOCKFULLSCREEN 1
-#define DEFAULT_REFRESHRATE 0
-#define TITLE_MAX_CHARS    128    /* max UTF-8 codepoints of client title in bar */
+#define DEFAULT_REFRESHRATE    60
+#define TITLE_MAX_CHARS        128
 
+static int border_px = BORDER_PX;
+static int resizehints = DEFAULT_RESIZEHINTS;        /* 1 = respect size hints for tiled windows */
+static int lockfullscreen = DEFAULT_LOCKFULLSCREEN;  /* 1 = prevent focus change from fullscreen */
+static int refreshrate = DEFAULT_REFRESHRATE;       /* throttle move/resize (ms) */
 static const char *tagnames[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
 
 typedef struct {
@@ -85,6 +78,8 @@ typedef struct {
     void (*func)(WMState *, const Arg *);
     Arg arg;
 } Key;
+
+static Time last_time = 0;
 
 static void    arrange(WMState *s, Monitor *m);
 static void    arrangemon(WMState *s, Monitor *m);
@@ -758,7 +753,7 @@ static int applysizehints(WMState *s, Client *c, int *x, int *y, int *w, int *h,
     if (*h < s.barheight) *h = s.barheight;
     if (*w < s.barheight) *w = s.barheight;
 
-    if (s.resizehints || c.isfloating || layouts[m.sellt].arrange == floating) {
+    if (resizehints || c.isfloating || layouts[m.sellt].arrange == floating) {
         if (!c.basew && !c.baseh) {
             c.basew = c.baseh = 0;
         }
@@ -1203,7 +1198,7 @@ static Client *createclient(WMState *s, Window w, XWindowAttributes *wa) {
     c.win = w;
     c.x = wa.x; c.y = wa.y; c.w = wa.width; c.h = wa.height;
     c.oldx = c.x; c.oldy = c.y; c.oldw = c.w; c.oldh = c.h;
-    c.bw = (int)s.borderpx;
+    c.bw = border_px;
     c.oldbw = wa.border_width;
     c.mon = s.selmon;
     c.tags = 0;
@@ -1667,7 +1662,7 @@ static void togglebar(WMState *s, const Arg *arg) {
 static void focusstack(WMState *s, const Arg *arg) {
     Client *c = NULL;
     if (!s.sel) return;
-    if (s.sel.isfullscreen && s.lockfullscreen) return;
+    if (s.sel.isfullscreen && lockfullscreen) return;
     if (arg.i > 0) {
         for (c = s.sel.next; c && !isvisible(c.mon, c); c = c.next);
         if (!c) for (c = s.selmon.clients; c && !isvisible(c.mon, c); c = c.next);
@@ -1808,23 +1803,23 @@ static void setgapsabs(WMState *s, const Arg *arg) {
 }
 
 static void setborderpx(WMState *s, const Arg *arg) {
-    if (arg.i == 0 || (int)s.borderpx + arg.i < 0)
-        s.borderpx = 0;
+    if (arg.i == 0 || border_px + arg.i < 0)
+        border_px = 0;
     else
-        s.borderpx += (unsigned int)arg.i;
+        border_px += arg.i;
     for (Monitor *m = s.mons; m; m = m.next)
         for (Client *c = m.clients; c; c = c.next) {
-            c.bw = (int)s.borderpx;
+            c.bw = border_px;
             XSetWindowBorderWidth(s.dpy, c.win, (unsigned)c.bw);
         }
     arrange(s, s.selmon);
 }
 
 static void setborderpxabs(WMState *s, const Arg *arg) {
-    s.borderpx = arg.i < 0 ? 0 : (unsigned int)arg.i;
+    border_px = arg.i < 0 ? 0 : arg.i;
     for (Monitor *m = s.mons; m; m = m.next)
         for (Client *c = m.clients; c; c = c.next) {
-            c.bw = (int)s.borderpx;
+            c.bw = border_px;
             XSetWindowBorderWidth(s.dpy, c.win, (unsigned)c.bw);
         }
     arrange(s, s.selmon);
@@ -1872,6 +1867,7 @@ static void movestack(WMState *s, const Arg *arg) {
 static void movemouse(WMState *s, const Arg *arg) {
     (void)arg;
     Client *c = s.sel;
+    last_time = 0;
     if (!c || c.isfullscreen) return;
     restack(s, s.selmon);
     int ocx = c.x, ocy = c.y;
@@ -1886,16 +1882,20 @@ static void movemouse(WMState *s, const Arg *arg) {
     do {
         XMaskEvent(s.dpy, ButtonPressMask | ButtonReleaseMask | PointerMotionMask | ExposureMask | SubstructureRedirectMask, &ev);
         if (ev.type == MotionNotify) {
-            int nx = ocx + (ev.xmotion.x - x0);
+
+	    if ((ev.xmotion.time - last_time) <= (1000 / refreshrate)) continue;
+	    last_time = ev.xmotion.time;
+
+	    int nx = ocx + (ev.xmotion.x - x0);
             int ny = ocy + (ev.xmotion.y - y0);
-            if (abs((s.selmon.wx) - nx) < s.snap) nx = s.selmon.wx;
-            else if (abs((s.selmon.wx + s.selmon.ww) - (nx + c.w)) < s.snap)
+            if (abs((s.selmon.wx) - nx) < SNAP_REGION) nx = s.selmon.wx;
+            else if (abs((s.selmon.wx + s.selmon.ww) - (nx + c.w)) < SNAP_REGION)
                 nx = s.selmon.wx + s.selmon.ww - c.w;
-            if (abs(s.selmon.wy - ny) < s.snap) ny = s.selmon.wy;
-            else if (abs((s.selmon.wy + s.selmon.wh) - (ny + c.h)) < s.snap)
+            if (abs(s.selmon.wy - ny) < SNAP_REGION) ny = s.selmon.wy;
+            else if (abs((s.selmon.wy + s.selmon.wh) - (ny + c.h)) < SNAP_REGION)
                 ny = s.selmon.wy + s.selmon.wh - c.h;
             if (!c.isfloating && layouts[s.selmon.sellt].arrange != floating
-                && (abs(nx - c.x) > s.snap || abs(ny - c.y) > s.snap)) {
+                && (abs(nx - c.x) > SNAP_REGION || abs(ny - c.y) > SNAP_REGION)) {
                 c.isfloating = 1;
                 arrange(s, s.selmon);
             }
@@ -1912,6 +1912,7 @@ static void movemouse(WMState *s, const Arg *arg) {
 
 static void resizemouse(WMState *s, const Arg *arg) {
     (void)arg;
+    last_time = 0;
     Client *c = s.sel;
     if (!c || c.isfullscreen) return;
     restack(s, s.selmon);
@@ -1925,10 +1926,14 @@ static void resizemouse(WMState *s, const Arg *arg) {
     do {
         XMaskEvent(s.dpy, ButtonPressMask | ButtonReleaseMask | PointerMotionMask | ExposureMask | SubstructureRedirectMask, &ev);
         if (ev.type == MotionNotify) {
+
+	    if ((ev.xmotion.time - last_time) <= (1000 / refreshrate)) continue;
+	    last_time = ev.xmotion.time;
+
             int nw = MAX(ev.xmotion.x - c.x + 1, 1);
             int nh = MAX(ev.xmotion.y - c.y + 1, 1);
             if (!c.isfloating && layouts[s.selmon.sellt].arrange != floating
-                && (abs(nw - c.w) > s.snap || abs(nh - c.h) > s.snap)) {
+                && (abs(nw - c.w) > SNAP_REGION || abs(nh - c.h) > SNAP_REGION)) {
                 c.isfloating = 1;
                 arrange(s, s.selmon);
             }
@@ -2323,9 +2328,6 @@ int wm_entry(WMState *s) {
     if (!s.visual) initvisual(s);
 
     setupcolors(s);
-    s.resizehints    = DEFAULT_RESIZEHINTS;
-    s.lockfullscreen = DEFAULT_LOCKFULLSCREEN;
-    s.refreshrate    = DEFAULT_REFRESHRATE;
     setupfont(s);
     setupdrawable(s);
 

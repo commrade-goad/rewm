@@ -1,12 +1,3 @@
-/* c2mir-lib.c — embeddable c2mir compilation + JIT execution wrapper
- *
- * Compiles C source files (or strings) to MIR modules, links them
- * via MIR_gen (JIT), and returns native function pointers.
- *
- * Linking: relies on dlsym(RTLD_DEFAULT) so the host process must
- * link against any library the JIT code calls (libX11, libc, etc.).
- */
-
 #include "c2mir-lib.h"
 
 #include <stdio.h>
