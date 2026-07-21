@@ -9,6 +9,8 @@ typedef struct rewm_compiler rewm_compiler_t;
 
 rewm_compiler_t *rewm_compiler_create(void);
 void rewm_add_include_dir(rewm_compiler_t *rc, const char *path);
+void rewm_add_lib_dir(rewm_compiler_t *rc, const char *path);
+void rewm_add_lib(rewm_compiler_t *rc, const char *name);
 
 /* Compile a C source file into MIR modules and load/link them.
    Returns 0 on success, -1 on error. */
