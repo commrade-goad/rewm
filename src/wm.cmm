@@ -268,12 +268,48 @@ static Key keys[] = {
 /* =========================================================================
  *  Colors / font (Xft-backed)
  * ========================================================================= */
-static unsigned long getcolor(WMState *s, const char *name) {
+static unsigned long getcolor(WMState *s, const char *name, unsigned int alpha) {
     XColor c;
     Colormap cmap = DefaultColormap(s.dpy, s.screen);
     if (!XAllocNamedColor(s.dpy, cmap, name, &c, &c))
         return BlackPixel(s.dpy, s.screen);
-    return c.pixel | (0xffUL << 24);
+
+    alpha &= 0xffUL;
+    unsigned long r = (c.pixel >> 16) & 0xff;
+    unsigned long g = (c.pixel >> 8)  & 0xff;
+    unsigned long b =  c.pixel        & 0xff;
+    /* Compositors (picom etc.) expect premultiplied alpha: each color
+     * channel must already be scaled by alpha/255. Packing full-
+     * strength RGB next to a low/zero alpha byte (what we did before)
+     * violates that invariant -- color can't legally exceed alpha per
+     * channel -- and picom's blending reads it as garbage, which is
+     * what was showing up as white instead of fading to transparent. */
+    r = (r * alpha) / 0xff;
+    g = (g * alpha) / 0xff;
+    b = (b * alpha) / 0xff;
+    return (alpha << 24) | (r << 16) | (g << 8) | b;
+}
+
+/* Find a 32-bit TrueColor (ARGB) visual for the bar's drawing pipeline,
+ * so alpha written into pixel values (see getcolor/allocxftcolor) is
+ * actually honored by a compositor instead of being silently dropped
+ * by a depth-24 visual with no alpha plane. Falls back to the default
+ * visual (opaque bar, no compositor needed) if none is available.
+ * Called once at startup -- the colormap it allocates must outlive
+ * every barwin, so this must NOT be re-run on every hot-reload. */
+static void initvisual(WMState *s) {
+    XVisualInfo vinfo;
+    if (XMatchVisualInfo(s.dpy, s.screen, 32, TrueColor, &vinfo)) {
+        s.visual = vinfo.visual;
+        s.depth  = (unsigned int)vinfo.depth;
+        s.cmap   = XCreateColormap(s.dpy, s.root, s.visual, AllocNone);
+        fprintf(stderr, "rewm: found 32-bit ARGB visual, bar transparency enabled\n");
+    } else {
+        s.visual = DefaultVisual(s.dpy, s.screen);
+        s.depth  = (unsigned int)DefaultDepth(s.dpy, s.screen);
+        s.cmap   = DefaultColormap(s.dpy, s.screen);
+        fprintf(stderr, "rewm: no 32-bit ARGB visual found (depth %u default), bar will be opaque\n", s.depth);
+    }
 }
 
 static void freexftcolors(WMState *s) {
@@ -295,22 +331,13 @@ static void allocxftcolor(WMState *s, int scheme, int col, const char *name) {
 }
 
 static void setupcolors(WMState *s) {
-    /* plain pixel values, used by drawrect() (tag dots, borders) */
-    s.col[SchemeNorm][ColFg]     = getcolor(s, COL_NORM_FG);
-    s.col[SchemeNorm][ColBg]     = getcolor(s, COL_NORM_BG);
-    s.col[SchemeNorm][ColBorder] = getcolor(s, COL_NORM_BORDER);
-    s.col[SchemeSel][ColFg]      = getcolor(s, COL_SEL_FG);
-    s.col[SchemeSel][ColBg]      = getcolor(s, COL_SEL_BG);
-    s.col[SchemeSel][ColBorder]  = getcolor(s, COL_SEL_BORDER);
+    s.col[SchemeNorm][ColFg]     = getcolor(s, COL_NORM_FG,    borderalpha);
+    s.col[SchemeNorm][ColBg]     = getcolor(s, COL_NORM_BG,    baralpha);
+    s.col[SchemeNorm][ColBorder] = getcolor(s, COL_NORM_BORDER,borderalpha);
+    s.col[SchemeSel][ColFg]      = getcolor(s, COL_SEL_FG,     borderalpha);
+    s.col[SchemeSel][ColBg]      = getcolor(s, COL_SEL_BG,     baralpha);
+    s.col[SchemeSel][ColBorder]  = getcolor(s, COL_SEL_BORDER, borderalpha);
 
-    /* Xft colors, used by drawtext(). setupcolors() is called on
-     * every reload (not just first init), so free the previous
-     * allocation first -- XftColorAllocName holds Render-side
-     * resources that plain XAllocNamedColor refcounting doesn't. */
-    freexftcolors(s);
-    s.visual = DefaultVisual(s.dpy, s.screen);
-    s.cmap   = DefaultColormap(s.dpy, s.screen);
-    s.depth  = (unsigned int)DefaultDepth(s.dpy, s.screen);
     allocxftcolor(s, SchemeNorm, ColFg,     COL_NORM_FG);
     allocxftcolor(s, SchemeNorm, ColBg,     COL_NORM_BG);
     allocxftcolor(s, SchemeNorm, ColBorder, COL_NORM_BORDER);
@@ -2031,14 +2058,33 @@ static Monitor *createmon(WMState *s) {
 
     updatebarpos(s, m);
 
+    /* background_pixmap = ParentRelative only works when the window's
+     * depth/visual matches its parent's (root). That's still true in
+     * the fallback case (initvisual() couldn't find an ARGB visual,
+     * so s.visual/s.depth == the default ones) -- only switch to an
+     * explicit background/border pixel + colormap when s.visual is
+     * genuinely non-default, or every system without a 32-bit visual
+     * ends up staring at a permanent solid-black bar instead of
+     * falling back to a normal opaque one. */
+    int hasargb = (s.visual != DefaultVisual(s.dpy, s.screen));
+
     XSetWindowAttributes swa;
     swa.override_redirect = True;
-    swa.background_pixmap = ParentRelative;
+    if (hasargb) {
+        swa.background_pixel = 0;
+        swa.border_pixel = 0;
+        swa.colormap = s.cmap;
+    } else {
+        swa.background_pixmap = ParentRelative;
+    }
     swa.event_mask = ExposureMask | ButtonPressMask | SubstructureNotifyMask;
     m.barwin = XCreateWindow(s.dpy, s.root, m.mx, m.topbar ? m.my : m.my + m.wh,
-                              (unsigned)m.mw, (unsigned)s.barheight, 0, DefaultDepth(s.dpy, s.screen),
-                              CopyFromParent, DefaultVisual(s.dpy, s.screen),
-                              CWOverrideRedirect | CWBackPixmap | CWEventMask, &swa);
+                              (unsigned)m.mw, (unsigned)s.barheight, 0, (int)s.depth,
+                              hasargb ? InputOutput : CopyFromParent, s.visual,
+                              hasargb
+                                  ? (CWOverrideRedirect | CWBackPixel | CWBorderPixel | CWColormap | CWEventMask)
+                                  : (CWOverrideRedirect | CWBackPixmap | CWEventMask),
+                              &swa);
     XDefineCursor(s.dpy, m.barwin, s.cur_normal);
     XMapRaised(s.dpy, m.barwin);
     XClassHint ch = { "rewm", "rewm" };
@@ -2268,6 +2314,14 @@ int wm_entry(WMState *s) {
     s.utf8_string       = XInternAtom(s.dpy, "UTF8_STRING",              False);
 
     updatenumlockmask(s);
+
+    /* Must run exactly once -- s.visual is NULL only on the very
+     * first call (fresh calloc'd WMState), never reset afterward, so
+     * this self-guards without needing a separate flag. Re-running it
+     * on reload would allocate a new colormap out from under every
+     * already-mapped barwin still referencing the old one. */
+    if (!s.visual) initvisual(s);
+
     setupcolors(s);
     s.resizehints    = DEFAULT_RESIZEHINTS;
     s.lockfullscreen = DEFAULT_LOCKFULLSCREEN;
@@ -2284,7 +2338,12 @@ int wm_entry(WMState *s) {
         s.sw = DisplayWidth (s.dpy, s.screen);
         s.sh = DisplayHeight(s.dpy, s.screen);
 
-        s.gc = XCreateGC(s.dpy, s.root, 0, NULL);
+        /* Against s.drawable, not s.root: a GC is only valid for
+         * drawables sharing its creation depth, and s.drawable/barwin
+         * are now s.depth (32 if an ARGB visual was found), which can
+         * differ from root's default depth. setupdrawable() above has
+         * already created s.drawable by this point. */
+        s.gc = XCreateGC(s.dpy, s.drawable, 0, NULL);
         setupcursors(s);
         setupewmh(s);
 
