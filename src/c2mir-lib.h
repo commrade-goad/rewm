@@ -1,4 +1,3 @@
-/* c2mir-lib.h — embeddable c2mir compilation + JIT wrapper */
 #ifndef C2MIR_LIB_H
 #define C2MIR_LIB_H
 
@@ -8,10 +7,7 @@
 
 typedef struct rewm_compiler rewm_compiler_t;
 
-/* Initialize compiler context (calls MIR_init + c2mir_init) */
 rewm_compiler_t *rewm_compiler_create(void);
-
-/* Add an include directory for the preprocessor (e.g., -I/path) */
 void rewm_add_include_dir(rewm_compiler_t *rc, const char *path);
 
 /* Compile a C source file into MIR modules and load/link them.
