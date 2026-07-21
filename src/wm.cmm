@@ -273,7 +273,7 @@ static unsigned long getcolor(WMState *s, const char *name) {
     Colormap cmap = DefaultColormap(s.dpy, s.screen);
     if (!XAllocNamedColor(s.dpy, cmap, name, &c, &c))
         return BlackPixel(s.dpy, s.screen);
-    return c.pixel;
+    return c.pixel | (0xffUL << 24);
 }
 
 static void freexftcolors(WMState *s) {
@@ -288,8 +288,10 @@ static void freexftcolors(WMState *s) {
 }
 
 static void allocxftcolor(WMState *s, int scheme, int col, const char *name) {
-    if (!XftColorAllocName(s.dpy, s.visual, s.cmap, name, &s.xftcol[scheme][col]))
+    XftColor *dest = &s->xftcol[scheme][col];
+    if (!XftColorAllocName(s->dpy, s->visual, s->cmap, name, dest))
         fprintf(stderr, "rewm: cannot allocate Xft color '%s'\n", name);
+    dest->pixel |= 0xff << 24;
 }
 
 static void setupcolors(WMState *s) {
