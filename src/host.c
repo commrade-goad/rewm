@@ -95,7 +95,6 @@ static int check_other_wm(Display *dpy) {
     return 0;
 }
 
-// TODO: add support to -L and -l for really custom lib
 static void parse_cflags(rewm_compiler_t *rc) {
     const char *cflags = getenv("REWM_CFLAGS");
     if (!cflags) return;
@@ -112,6 +111,19 @@ static void parse_cflags(rewm_compiler_t *rc) {
                 if (path_copy) {
                     rewm_add_include_dir(rc, path_copy);
                 }
+            }
+        } else if (strncmp(token, "-L", 2) == 0) {
+            const char *path = token + 2;
+            if (*path) {
+                char *path_copy = strdup(path);
+                if (path_copy) {
+                    rewm_add_lib_dir(rc, path_copy);
+                }
+            }
+        } else if (strncmp(token, "-l", 2) == 0) {
+            const char *name = token + 2;
+            if (*name) {
+                rewm_add_lib(rc, name);
             }
         }
         token = strtok(NULL, " \t");
