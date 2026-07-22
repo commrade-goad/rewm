@@ -1,5 +1,5 @@
 * CLEANUP TODO
-** TODO Cleanup c2mir-lib.c
+** DONE Cleanup c2mir-lib.c
 ** TODO Rewrite the entire wm.cmm (or just fix all the ai bullshit on it)
 ** TODO Write second wm.cmm that is scrollable or something
 Reference impl [[https://github.com/hokum-b/mriya/][here]]

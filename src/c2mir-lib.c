@@ -9,7 +9,6 @@
 
 #include "mir-gen.h"
 
-/* ---- helper: read file into heap buffer --------------------------------- */
 static uint8_t *read_file(const char *path, size_t *len_out) {
     FILE *f = fopen(path, "rb");
     if (!f) return NULL;
@@ -26,13 +25,11 @@ static uint8_t *read_file(const char *path, size_t *len_out) {
     return buf;
 }
 
-/* ---- getc callback for c2mir_compile (reads from our buffer) ------------ */
 static int buf_getc(void *data) {
     struct { const uint8_t *buf; size_t len; size_t pos; } *s = data;
     return s->pos < s->len ? s->buf[s->pos++] : EOF;
 }
 
-/* ---- per-library handle + name (for explicit dlsym) -------------------- */
 typedef struct {
     void *handle;
     char *name;
@@ -55,7 +52,6 @@ static void *import_resolver(const char *name) {
     /* fallback: host binary + system libs */
     void *sym = dlsym(RTLD_DEFAULT, name);
     if (sym) return sym;
-    /* Known builtins MIR needs: */
     if (strcmp(name, "abort") == 0) return abort;
     if (strcmp(name, "dlsym") == 0) return dlsym;
     if (strcmp(name, "dlopen") == 0) return dlopen;
@@ -67,7 +63,6 @@ static void *import_resolver(const char *name) {
     return NULL;
 }
 
-/* ---- compiler context ---------------------------------------------------- */
 struct rewm_compiler {
     MIR_context_t ctx;
     int gen_inited;
@@ -140,9 +135,7 @@ void rewm_add_lib(rewm_compiler_t *rc, const char *name) {
     rc->lib_names[rc->lib_names_num++] = dup;
 }
 
-/* ---- dlopen a library by trying each -L dir then plain name ------------ */
 static int load_lib(rewm_compiler_t *rc, const char *name) {
-    /* ensure room in global import list */
     if (import_libs_num >= import_libs_cap) {
         size_t new_cap = import_libs_cap ? import_libs_cap * 2 : 8;
         lib_handle_t *new_h = realloc(import_libs, new_cap * sizeof(*new_h));
@@ -182,7 +175,6 @@ static int load_lib(rewm_compiler_t *rc, const char *name) {
     return -1;
 }
 
-/* ---- compile source ------------------------------------------------------*/
 static int compile_source(rewm_compiler_t *rc,
                           const uint8_t *code, size_t code_len,
                           const char *source_name,
@@ -191,11 +183,9 @@ static int compile_source(rewm_compiler_t *rc,
     memset(&opts, 0, sizeof(opts));
     opts.message_file      = stderr;
     opts.no_prepro_p       = is_preprocessed ? 1 : 0;
-    /* compile into MIR modules (no output files) */
     opts.asm_p         = 0;
     opts.object_p      = 0;
-    
-    /* Pass include directories to c2mir */
+
     opts.include_dirs = rc->include_dirs;
     opts.include_dirs_num = rc->include_dirs_num;
 
@@ -204,7 +194,6 @@ static int compile_source(rewm_compiler_t *rc,
     buf_state.len = code_len;
     buf_state.pos = 0;
 
-    /* c2mir_compile reads from getc callback, populates MIR context modules */
     int ok = c2mir_compile(rc->ctx, &opts, buf_getc, &buf_state,
                            source_name, /* output_file = */ NULL);
     return ok ? 0 : -1;
@@ -228,11 +217,9 @@ int rewm_compile_string(rewm_compiler_t *rc, const char *source,
                           source_name, 0);
 }
 
-/* ---- load modules & link via JIT (MIR_gen) ------------------------------ */
 static int ensure_linked(rewm_compiler_t *rc) {
     if (rc->gen_inited) return 0; /* already linked */
 
-    /* dlopen every -l lib before linking */
     for (size_t i = 0; i < rc->lib_names_num; i++) {
         if (load_lib(rc, rc->lib_names[i]) != 0) {
             fprintf(stderr, "rewm: failed to load library '%s'\n", rc->lib_names[i]);
@@ -248,7 +235,6 @@ static int ensure_linked(rewm_compiler_t *rc) {
         MIR_load_module(rc->ctx, m);
     }
 
-    /* Init generator & link */
     MIR_gen_init(rc->ctx);
     if (rc->optimize_level > 0)
         MIR_gen_set_optimize_level(rc->ctx, rc->optimize_level);
@@ -259,7 +245,6 @@ static int ensure_linked(rewm_compiler_t *rc) {
     return 0;
 }
 
-/* ---- find a function by name and return its native address --------------- */
 void *rewm_get_func(rewm_compiler_t *rc, const char *name) {
     if (ensure_linked(rc) != 0) return NULL;
 
@@ -304,7 +289,7 @@ void rewm_compiler_destroy(rewm_compiler_t *rc) {
         free(rc->lib_names[i]);
     }
     free(rc->lib_names);
-    /* close dlopen'd libs */
+
     for (size_t i = 0; i < import_libs_num; i++) {
         if (import_libs[i].handle) dlclose(import_libs[i].handle);
         free(import_libs[i].name);
