@@ -33,7 +33,7 @@ static const char *fontnames[] = {
 #define BARHEIGHT_PAD          4
 #define DEFAULT_MFACT          0.55f
 #define DEFAULT_NMASTER        1
-#define DEFAULT_GAP            4
+#define DEFAULT_GAP            0
 #define DEFAULT_RESIZEHINTS    1
 #define DEFAULT_LOCKFULLSCREEN 1
 #define DEFAULT_REFRESHRATE    60
