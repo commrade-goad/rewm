@@ -337,7 +337,7 @@ static xfont_create: (s: *WMState, fontname: *const char, fontpattern: *FcPatter
             fprintf(stderr, "rewm: cannot load font from name: '%s'\n", fontname);
             return NULL;
         }
-        if !(pattern = FcNameParse((FcChar8 *)fontname)) {
+        if !(pattern = FcNameParse(cast(*FcChar8)fontname)) {
             fprintf(stderr, "rewm: cannot parse font name to pattern: '%s'\n", fontname);
             XftFontClose(s.dpy, xfont);
             return NULL;
@@ -524,23 +524,21 @@ static textwidth: (s: *WMState, text: *const char) int {
     return w + s.lrpad;
 }
 
-// refactor end here for now,,,
-
 /* =========================================================================
  *  Bar
  * ========================================================================= */
-static void updatebarpos(WMState *s, Monitor *m) {
+static updatebarpos:(s: *WMState, m: *Monitor) void {
     m.wy = m.my;
     m.wh = m.mh;
-    if (m.showbar) {
+    if m.showbar {
         m.wh -= s.barheight;
         m.wy = m.topbar ? m.wy + s.barheight : m.wy;
     }
 }
 
-static void drawrect(WMState *s, int x, int y, int w, int h, unsigned long pixel, int fill) {
+static drawrect: (s: *WMState, x: int, y: int, w: int, h: int, pixel: unsigned long, fill: int) void {
     XSetForeground(s.dpy, s.gc, pixel);
-    if (fill) {
+    if fill {
         XFillRectangle(s.dpy, s.drawable, s.gc, x, y, (unsigned)w, (unsigned)h);
     } else {
         /* Draw 4 sides with XFillRectangle instead of XDrawRectangle(…, w-1, h-1).
@@ -555,39 +553,48 @@ static void drawrect(WMState *s, int x, int y, int w, int h, unsigned long pixel
 }
 
 /* UTF-8 helpers for title truncation */
-static int utf8charlen(const char *p) {
-    unsigned char c = (unsigned char)*p;
-    if (!c) return 0;
-    if (c < 0x80) return 1;
-    if (c < 0xC0) return 1;
-    if (c < 0xE0) return 2;
-    if (c < 0xF0) return 3;
+static utf8charlen: (p: *const char) int {
+    c := (unsigned char)*p;
+    if !c return 0;
+    if c < 0x80 return 1;
+    if c < 0xC0 return 1;
+    if c < 0xE0 return 2;
+    if c < 0xF0 return 3;
     return 4;
 }
 
-static int utf8strlen(const char *s) {
-    int n = 0;
-    while (*s) { s += utf8charlen(s); n++; }
+static utf8strlen: (s: *const char) int {
+    n := 0;
+    while s.* {
+	s += utf8charlen(s);
+	n++;
+    }
     return n;
 }
 
-static void truncate_utf8(const char *src, char *dst, size_t dstsize, int max_cp) {
-    int cp = 0;
-    size_t pos = 0;
-    while (src[pos] && cp < max_cp) {
-        int clen = utf8charlen(&src[pos]);
-        if (pos + (size_t)clen >= dstsize) break;
-        for (int i = 0; i < clen; i++) dst[pos + i] = src[pos + i];
+static truncate_utf8: (src: *const char, dst: *char, dstsize: size_t, max_cp: int) void {
+    cp := 0;
+    pos: size_t = 0;
+    while src[pos] && cp < max_cp {
+        clen := utf8charlen(&src[pos]);
+        if pos + (size_t)clen >= dstsize break;
+        for i := 0; i < clen; i++; { dst[pos + i] = src[pos + i]; }
         pos += (size_t)clen;
         cp++;
     }
-    if (src[pos]) {
-        const char *e = "\xe2\x80\xa6"; /* … (U+2026, UTF-8) */
-        if (pos + 3 < dstsize) { dst[pos++] = e[0]; dst[pos++] = e[1]; dst[pos++] = e[2]; }
+    if src[pos] {
+        e: *const char = "\xe2\x80\xa6"; /* … (U+2026, UTF-8) */
+        if pos + 3 < dstsize {
+	    dst[pos++] = e[0];
+	    dst[pos++] = e[1];
+	    dst[pos++] = e[2];
+	}
     }
-    if (pos < dstsize) dst[pos] = '\0';
+    if pos < dstsize { dst[pos] = '\0'; }
     else dst[dstsize - 1] = '\0';
 }
+
+// refactor end here for now,,,
 
 static void drawtext(WMState *s, int x, int y, unsigned long fg, unsigned long bg,
                      XftColor *xfg, int w, int h, const char *text) {
