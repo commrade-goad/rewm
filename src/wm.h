@@ -5,6 +5,7 @@
 #include <X11/Xatom.h>
 #include <X11/extensions/Xinerama.h>
 #include <X11/Xft/Xft.h>
+#include <time.h>
 
 #define LENGTH(x)       (sizeof(x) / sizeof(x[0]))
 #define MAX(a, b)       ((a) > (b) ? (a) : (b))
@@ -68,6 +69,7 @@ struct Monitor {
     Client *stack;
     Monitor *next;
     Window barwin;
+    int barfocused;             /* -1 = unset, else last WM_NAME state we wrote (0/1) */
 };
 
 typedef struct {
@@ -123,6 +125,10 @@ struct WMState {
     volatile int sig_caught;    /* set by signal handler, checked by event loop */
 
     int reload_count;
+
+    /* urgent tag flash */
+    int urgent_flash_on;
+    long last_flash_ms;
 };
 
 #endif /* WM_H */
