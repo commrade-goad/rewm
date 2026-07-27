@@ -24,8 +24,8 @@
 #define TERMINAL          "st"
 #define LAUNCHER          "tmenu_runner"
 #define TAGMASK           ((1 << 9) - 1)
-static const char *fontnames[] = {
-    "Iosevka:size=11",
+static fontnames: []*const char = {
+    "Monospace:size=11",
 };
 
 #define BORDER_PX              2
@@ -33,31 +33,31 @@ static const char *fontnames[] = {
 #define BARHEIGHT_PAD          4
 #define DEFAULT_MFACT          0.55f
 #define DEFAULT_NMASTER        1
-#define DEFAULT_GAP            0
+#define DEFAULT_GAP            3
 #define DEFAULT_RESIZEHINTS    1
 #define DEFAULT_LOCKFULLSCREEN 1
 #define DEFAULT_REFRESHRATE    60
 #define TITLE_MAX_CHARS        128
 
-static int border_px = BORDER_PX;
-static int resizehints = DEFAULT_RESIZEHINTS;        /* 1 = respect size hints for tiled windows */
-static int lockfullscreen = DEFAULT_LOCKFULLSCREEN;  /* 1 = prevent focus change from fullscreen */
-static int refreshrate = DEFAULT_REFRESHRATE;       /* throttle move/resize (ms) */
-static const char *tagnames[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
+static border_px      := BORDER_PX;
+static resizehints    := DEFAULT_RESIZEHINTS;       /* 1 = respect size hints for tiled windows */
+static lockfullscreen := DEFAULT_LOCKFULLSCREEN;    /* 1 = prevent focus change from fullscreen */
+static refreshrate    := DEFAULT_REFRESHRATE;       /* throttle move/resize (ms) */
+static tagnames: []*const char = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
 
-typedef struct {
-    const char *class;
-    const char *instance;
-    const char *title;
-    unsigned int tags;
-    int isfloating;
-    int monitor;
-} Rule;
+typedef Rule : struct {
+    class      : *const char;
+    instance   : *const char;
+    title      : *const char;
+    tags       : unsigned int;
+    isfloating : int;
+    monitor    : int;
+};
 
 /* class/instance/title match -> tags/floating/monitor, like dwm's config.h rules[].
  * NULL fields match anything. tags==0 keeps whatever tag was active when
  * the window was created. Edit freely -- this is your config section. */
-static const Rule rules[] = {
+static rules: []const Rule = {
     /* class          instance  title     tags mask   isfloating    monitor*/
     { "mpv",          NULL,     NULL,     0,           1,           -1 },
     { "dialog",       NULL,     NULL,     0,           1,           -1 },
@@ -65,107 +65,107 @@ static const Rule rules[] = {
     { "Emacs",        NULL,     NULL,     1<<0,        0,           -1 },
 };
 
-typedef union {
-    int i;
-    unsigned int ui;
-    float f;
-    const void *v;
-} Arg;
+typedef Arg: union {
+    i : int;
+    ui: unsigned int;
+    f : float;
+    v : *const void;
+};
 
-typedef struct {
-    unsigned int mod;
-    KeySym keysym;
-    void (*func)(WMState *, const Arg *);
-    Arg arg;
-} Key;
+typedef Key: struct {
+    mod   : unsigned int;
+    keysym: KeySym;
+    func  : *(*WMState, *const Arg) void;
+    arg   : Arg;
+};
 
-static Time last_time = 0;
+static last_time  : Time = 0;
+static numlockmask: int;
 
-static void    arrange(WMState *s, Monitor *m);
-static void    arrangemon(WMState *s, Monitor *m);
-static void    restack(WMState *s, Monitor *m);
-static int     numlockmask;
-static void    spawn(WMState *s, const Arg *arg);
-static Monitor *wintomon(WMState *s, Window w);
-static Client  *wintoclient(WMState *s, Window w);
-static int     getrootptr(WMState *s, int *x, int *y);
-static void    setfocus(WMState *s, Client *c);
-static void    grabbuttons(WMState *s, Client *c, int focused);
-static void    maprequest(WMState *s, XEvent *e);
-static void    focus(WMState *s, Client *c);
-static void    unfocus(WMState *s, Client *c, int setfocus);
-static void    drawbar(WMState *s, Monitor *m);
-static void    drawbars(WMState *s);
-static void    updatetitle(WMState *s, Client *c);
-static void    configure(WMState *s, Client *c);
-static void    resizeclient(WMState *s, Client *c, int x, int y, int w, int h);
-static void    setfullscreen(WMState *s, Client *c, int fullscreen);
-static void    setsticky(WMState *s, Client *c, int sticky);
-static Client  *nexttiled(Client *c);
-static Client  *nexttagged(Client *c);
-static void    attach(WMState *s, Client *c);
-static void    attachaside(WMState *s, Client *c);
-static void    attachstack(WMState *s, Client *c);
-static void    detach(WMState *s, Client *c);
-static void    detachstack(WMState *s, Client *c);
-static void    syncglobalclients(WMState *s);
-static void    updatesizehints(WMState *s, Client *c);
-static void    updatewmhints(WMState *s, Client *c);
-static void    updatewindowtype(WMState *s, Client *c);
-static int     sendevent(WMState *s, Window w, Atom proto, long d0, long d1, long d2, long d3, long d4);
-static void    unmanage(WMState *s, Client *c, int destroyed);
-static void    expose(WMState *s, XEvent *e);
-static void    focusin(WMState *s, XEvent *e);
-static void    motionnotify(WMState *s, XEvent *e);
-static void    resizerequest(WMState *s, XEvent *e);
-static void    cleanup(WMState *s);
-static Monitor *recttomon(WMState *s, int x, int y, int w, int h);
-static long    getstate(WMState *s, Window w);
-static void    updatenumlockmask(WMState *s);
-static int     updategeom(WMState *s);
-static Monitor *createmon(WMState *s);
-static void    cleanupmon(WMState *s, Monitor *m);
-static Monitor *dirtomon(WMState *s, int dir);
-static void    focusmon(WMState *s, const Arg *arg);
-static void    tagmon(WMState *s, const Arg *arg);
-static void    updatebarpos(WMState *s, Monitor *m);
-static void    resizebarwin(WMState *s, Monitor *m);
-
+static arrange                  : (s: *WMState, m: *Monitor) void;
+static arrangemon               : (s: *WMState, m: *Monitor) void;
+static restack                  : (s: *WMState, m: *Monitor) void;
+static spawn                    : (s: *WMState, arg: *const Arg) void;
+static wintomon                 : (s: *WMState, w: Window) *Monitor;
+static wintoclient              : (s: *WMState, w: Window) *Client;
+static getrootptr               : (s: *WMState, x: *int, y: *int) int;
+static setfocus                 : (s: *WMState, c: *Client) void;
+static grabbuttons              : (s: *WMState, c: *Client, focused: int) void;
+static maprequest               : (s: *WMState, e: *XEvent) void;
+static focus                    : (s: *WMState, c: *Client) void;
+static unfocus                  : (s: *WMState, c: *Client, setfocus: int) void;
+static drawbar                  : (s: *WMState, m: *Monitor) void;
+static drawbars                 : (s: *WMState) void;
+static updatetitle              : (s: *WMState, c: *Client) void;
+static configure                : (s: *WMState, c: *Client) void;
+static resizeclient             : (s: *WMState, c: *Client, x: int, y: int, w: int, h: int) void;
+static setfullscreen            : (s: *WMState, c: *Client, fullscreen: int) void;
+static setsticky                : (s: *WMState, c: *Client, sticky: int) void;
+static nexttiled                : (c: *Client) *Client;
+static nexttagged               : (c: *Client) *Client;
+static attach                   : (s: *WMState, c: *Client) void;
+static attachaside              : (s: *WMState, c: *Client) void;
+static attachstack              : (s: *WMState, c: *Client) void;
+static detach                   : (s: *WMState, c: *Client) void;
+static detachstack              : (s: *WMState, c: *Client) void;
+static syncglobalclients        : (s: *WMState) void;
+static updatesizehints          : (s: *WMState, c: *Client) void;
+static updatewmhints            : (s: *WMState, c: *Client) void;
+static updatewindowtype         : (s: *WMState, c: *Client) void;
+static sendevent                : (s: *WMState, w: Window, proto: Atom,
+                                   d0: long, d1: long, d2: long, d3: long, d4: long) int;
+static unmanage                 : (s: *WMState, c: *Client, destroyed: int) void;
+static expose                   : (s: *WMState, e: *XEvent) void;
+static focusin                  : (s: *WMState, e: *XEvent) void;
+static motionnotify             : (s: *WMState, e: *XEvent) void;
+static resizerequest            : (s: *WMState, e: *XEvent) void;
+static cleanup                  : (s: *WMState) void;
+static recttomon                : (s: *WMState, x: int, y: int, w: int, h: int) *Monitor;
+static getstate                 : (s: *WMState, w: Window) long;
+static updatenumlockmask        : (s: *WMState) void;
+static updategeom               : (s: *WMState) int;
+static createmon                : (s: *WMState) *Monitor;
+static cleanupmon               : (s: *WMState, m: *Monitor) void;
+static dirtomon                 : (s: *WMState, dir: int) *Monitor;
+static focusmon                 : (s: *WMState, arg: *const Arg) void;
+static tagmon                   : (s: *WMState, arg: *const Arg) void;
+static updatebarpos             : (s: *WMState, m: *Monitor) void;
+static resizebarwin             : (s: *WMState, m: *Monitor) void;
 /* ---- key action funcs (bound in `keys[]` below) ------------------------- */
-static void togglebar(WMState *s, const Arg *arg);
-static void focusstack(WMState *s, const Arg *arg);
-static void incnmaster(WMState *s, const Arg *arg);
-static void setmfact(WMState *s, const Arg *arg);
-static void zoom(WMState *s, const Arg *arg);
-static void view(WMState *s, const Arg *arg);
-static void toggleview(WMState *s, const Arg *arg);
-static void tagclient(WMState *s, const Arg *arg);
-static void toggletag(WMState *s, const Arg *arg);
-static void killclient(WMState *s, const Arg *arg);
-static void togglefloating(WMState *s, const Arg *arg);
-static void togglefullscreen(WMState *s, const Arg *arg);
-static void togglesticky(WMState *s, const Arg *arg);
-static void setgaps(WMState *s, const Arg *arg);
-static void setgapsabs(WMState *s, const Arg *arg);
-static void setborderpx(WMState *s, const Arg *arg);
-static void setborderpxabs(WMState *s, const Arg *arg);
-static void movestack(WMState *s, const Arg *arg);
-static void setlayout(WMState *s, const Arg *arg);
-static void movemouse(WMState *s, const Arg *arg);
-static void resizemouse(WMState *s, const Arg *arg);
-static void quit(WMState *s, const Arg *arg);
-static void reload_wm(WMState *s, const Arg *arg);
-static void focusmon(WMState *s, const Arg *arg);
-static void tagmon(WMState *s, const Arg *arg);
+static togglebar                : (s: *WMState, arg: *const Arg) void;
+static focusstack               : (s: *WMState, arg: *const Arg) void;
+static incnmaster               : (s: *WMState, arg: *const Arg) void;
+static setmfact                 : (s: *WMState, arg: *const Arg) void;
+static zoom                     : (s: *WMState, arg: *const Arg) void;
+static view                     : (s: *WMState, arg: *const Arg) void;
+static toggleview               : (s: *WMState, arg: *const Arg) void;
+static tagclient                : (s: *WMState, arg: *const Arg) void;
+static toggletag                : (s: *WMState, arg: *const Arg) void;
+static killclient               : (s: *WMState, arg: *const Arg) void;
+static togglefloating           : (s: *WMState, arg: *const Arg) void;
+static togglefullscreen         : (s: *WMState, arg: *const Arg) void;
+static togglesticky             : (s: *WMState, arg: *const Arg) void;
+static setgaps                  : (s: *WMState, arg: *const Arg) void;
+static setgapsabs               : (s: *WMState, arg: *const Arg) void;
+static setborderpx              : (s: *WMState, arg: *const Arg) void;
+static setborderpxabs           : (s: *WMState, arg: *const Arg) void;
+static movestack                : (s: *WMState, arg: *const Arg) void;
+static setlayout                : (s: *WMState, arg: *const Arg) void;
+static movemouse                : (s: *WMState, arg: *const Arg) void;
+static resizemouse              : (s: *WMState, arg: *const Arg) void;
+static quit                     : (s: *WMState, arg: *const Arg) void;
+static reload_wm                : (s: *WMState, arg: *const Arg) void;
+static focusmon                 : (s: *WMState, arg: *const Arg) void;
+static tagmon                   : (s: *WMState, arg: *const Arg) void;
 
 /* =========================================================================
  *  Layouts
  * ========================================================================= */
-static void tile(WMState *s, Monitor *m);
-static void monocle(WMState *s, Monitor *m);
-static void floating(WMState *s, Monitor *m);
+static tile    : (s: *WMState, m: *Monitor) void;
+static monocle : (s: *WMState, m: *Monitor) void;
+static floating: (s: *WMState, m: *Monitor) void;
 
-static Layout layouts[] = {
+static layouts: []Layout = {
     { "<T>",  tile },
     { "<M>",  monocle },
     { "<F>",  floating },
@@ -176,33 +176,33 @@ static Layout layouts[] = {
  *  Keybindings
  * ========================================================================= */
 #define TAGKEYS(KEY,TAG)                                                \
-    { MODKEY,               KEY, view,       {.ui = 1 << (TAG)} },      \
+    { MODKEY,                KEY, view,       {.ui = 1 << (TAG)} },     \
     { MODKEY|ControlMask,    KEY, toggleview, {.ui = 1 << (TAG)} },     \
     { MODKEY|ShiftMask,      KEY, tagclient,  {.ui = 1 << (TAG)} },     \
     { MODKEY|ControlMask|ShiftMask, KEY, toggletag, {.ui = 1 << (TAG)} }
 
-static const char *termcmd[]  = { TERMINAL,                                       NULL };
-static const char *dmenucmd[] = { TERMINAL, "-c", "dialog", "-e", LAUNCHER,       NULL };
-static const char *zoomcmd[]  = { "boomer",                                       NULL };
-static const char *editcmd[]  = { "emacs",                                        NULL };
-static const char *webcmd[]   = { "firefox-bin",                                  NULL };
-static const char *emojicmd[] = { TERMINAL, "-c", "dialog", "-e", "dmenumoji"   , NULL };
+static termcmd  : []*const char = { TERMINAL,                                       NULL };
+static dmenucmd : []*const char = { TERMINAL, "-c", "dialog", "-e", LAUNCHER,       NULL };
+static zoomcmd  : []*const char = { "boomer",                                       NULL };
+static editcmd  : []*const char = { "emacs",                                        NULL };
+static webcmd   : []*const char = { "firefox-bin",                                  NULL };
+static emojicmd : []*const char = { TERMINAL, "-c", "dialog", "-e", "dmenumoji"   , NULL };
 
 /* media keys */
-static const char *up_vol[]       = { "pamixer-wrapper",       "raise",                         NULL };
-static const char *down_vol[]     = { "pamixer-wrapper",       "lower",                         NULL };
-static const char *mute_vol[]     = { "pamixer-wrapper",       "toggle",                        NULL };
-static const char *mute_mic_vol[] = { "pactl", "set-source-mute", "@DEFAULT_SOURCE@", "toggle", NULL };
+static up_vol       : []*const char = { "pamixer-wrapper",       "raise",                         NULL };
+static down_vol	    : []*const char = { "pamixer-wrapper",       "lower",                         NULL };
+static mute_vol	    : []*const char = { "pamixer-wrapper",       "toggle",                        NULL };
+static mute_mic_vol : []*const char = { "pactl", "set-source-mute", "@DEFAULT_SOURCE@", "toggle", NULL };
 
 /* brightness keys */
-static const char *brighter[]     = { "brightnessctl-wrapper", "raise",      NULL };
-static const char *dimmer[]       = { "brightnessctl-wrapper", "lower",      NULL };
+static brighter: []*const char = { "brightnessctl-wrapper", "raise",      NULL };
+static dimmer  : []*const char = { "brightnessctl-wrapper", "lower",      NULL };
 
 /* screenshot keys */
-static const char *screenshot[]       = { "/bin/sh", "-c", "xsc.sh",    NULL };
-static const char *screenshot_sel[]   = { "/bin/sh", "-c", "xscsel.sh", NULL };
+static screenshot    : []*const char = { "/bin/sh", "-c", "xsc.sh",    NULL };
+static screenshot_sel: []*const char = { "/bin/sh", "-c", "xscsel.sh", NULL };
 
-static Key keys[] = {
+static keys: []Key = {
     { MODKEY,                XK_Return, spawn,          {.v = termcmd } },
     { MODKEY,                XK_p,      spawn,          {.v = dmenucmd} },
     { MODKEY,                XK_e,      spawn,          {.v = editcmd } },
@@ -260,72 +260,53 @@ static Key keys[] = {
 };
 #define KEY_COUNT ((int)(sizeof(keys)/sizeof(keys[0])))
 
-/* =========================================================================
- *  Colors / font (Xft-backed)
- * ========================================================================= */
-static unsigned long getcolor(WMState *s, const char *name, unsigned int alpha) {
-    XColor c;
-    Colormap cmap = DefaultColormap(s.dpy, s.screen);
-    if (!XAllocNamedColor(s.dpy, cmap, name, &c, &c))
-        return BlackPixel(s.dpy, s.screen);
+static getcolor: (s: *WMState, name: *const char, alpha: unsigned int) unsigned long {
+    c    : XColor;
+    cmap := DefaultColormap(s.dpy, s.screen);
+    if !XAllocNamedColor(s.dpy, cmap, name, &c, &c) {
+	return BlackPixel(s.dpy, s.screen);
+    }
 
     alpha &= 0xffUL;
-    unsigned long r = (c.pixel >> 16) & 0xff;
-    unsigned long g = (c.pixel >> 8)  & 0xff;
-    unsigned long b =  c.pixel        & 0xff;
-    /* Compositors (picom etc.) expect premultiplied alpha: each color
-     * channel must already be scaled by alpha/255. Packing full-
-     * strength RGB next to a low/zero alpha byte (what we did before)
-     * violates that invariant -- color can't legally exceed alpha per
-     * channel -- and picom's blending reads it as garbage, which is
-     * what was showing up as white instead of fading to transparent. */
+    r: unsigned long = (c.pixel >> 16) & 0xff;
+    g: unsigned long = (c.pixel >> 8)  & 0xff;
+    b: unsigned long =  c.pixel        & 0xff;
+    // Compositor need the alpha channel be blended on the pixel straight up
     r = (r * alpha) / 0xff;
     g = (g * alpha) / 0xff;
     b = (b * alpha) / 0xff;
     return (alpha << 24) | (r << 16) | (g << 8) | b;
 }
 
-/* Find a 32-bit TrueColor (ARGB) visual for the bar's drawing pipeline,
- * so alpha written into pixel values (see getcolor/allocxftcolor) is
- * actually honored by a compositor instead of being silently dropped
- * by a depth-24 visual with no alpha plane. Falls back to the default
- * visual (opaque bar, no compositor needed) if none is available.
- * Called once at startup -- the colormap it allocates must outlive
- * every barwin, so this must NOT be re-run on every hot-reload. */
-static void initvisual(WMState *s) {
-    XVisualInfo vinfo;
-    if (XMatchVisualInfo(s.dpy, s.screen, 32, TrueColor, &vinfo)) {
+static initvisual: (s: *WMState) void {
+    vinfo : XVisualInfo;
+    if XMatchVisualInfo(s.dpy, s.screen, 32, TrueColor, &vinfo) {
         s.visual = vinfo.visual;
         s.depth  = (unsigned int)vinfo.depth;
         s.cmap   = XCreateColormap(s.dpy, s.root, s.visual, AllocNone);
-        fprintf(stderr, "rewm: found 32-bit ARGB visual, bar transparency enabled\n");
     } else {
         s.visual = DefaultVisual(s.dpy, s.screen);
         s.depth  = (unsigned int)DefaultDepth(s.dpy, s.screen);
         s.cmap   = DefaultColormap(s.dpy, s.screen);
-        fprintf(stderr, "rewm: no 32-bit ARGB visual found (depth %u default), bar will be opaque\n", s.depth);
     }
 }
 
-static void freexftcolors(WMState *s) {
-    /* only meaningful once visual/cmap are known, i.e. after the very
-     * first setupfont() -- guard so the pre-init call doesn't touch
-     * garbage */
-    if (!s.visual) return;
-    for (int i = 0; i < SchemeLast; i++)
-        for (int j = 0; j < ColLast; j++)
-            if (s.xftcol[i][j].pixel || s.xftcol[i][j].color.alpha)
+static freexftcolors: (s: *WMState) void {
+    if !s.visual { return; }
+    for i := 0; i < SchemeLast; i++;
+        for j := 0; j < ColLast; j++;
+            if s.xftcol[i][j].pixel || s.xftcol[i][j].color.alpha
                 XftColorFree(s.dpy, s.visual, s.cmap, &s.xftcol[i][j]);
 }
 
-static void allocxftcolor(WMState *s, int scheme, int col, const char *name) {
-    XftColor *dest = &s->xftcol[scheme][col];
-    if (!XftColorAllocName(s->dpy, s->visual, s->cmap, name, dest))
+static allocxftcolor: (s: *WMState, scheme: int, col: int, name: *const char) void {
+    dest := &s->xftcol[scheme][col];
+    if !XftColorAllocName(s->dpy, s->visual, s->cmap, name, dest)
         fprintf(stderr, "rewm: cannot allocate Xft color '%s'\n", name);
     dest->pixel |= 0xff << 24;
 }
 
-static void setupcolors(WMState *s) {
+static setupcolors: (s: *WMState) void {
     s.col[SchemeNorm][ColFg]     = getcolor(s, COL_NORM_FG,    borderalpha);
     s.col[SchemeNorm][ColBg]     = getcolor(s, COL_NORM_BG,    baralpha);
     s.col[SchemeNorm][ColBorder] = getcolor(s, COL_NORM_BORDER,borderalpha);
@@ -341,58 +322,51 @@ static void setupcolors(WMState *s) {
     allocxftcolor(s, SchemeSel,  ColBorder, COL_SEL_BORDER);
 }
 
-/* This function is an implementation detail -- callers should use
- * setupfont() (initial load) or getfontforchar() (dynamic fallback).
- * Ported from dwm's drw.c xfont_create(). */
-static Fnt *xfont_create(WMState *s, const char *fontname, FcPattern *fontpattern) {
-    XftFont *xfont = NULL;
-    FcPattern *pattern = NULL;
+// use setupfont() instead of this function... this used internally
+static xfont_create: (s: *WMState, fontname: *const char, fontpattern: *FcPattern) *Fnt {
+    xfont  : *XftFont   = NULL;
+    pattern: *FcPattern = NULL;
 
-    if (fontname) {
+    if fontname {
         /* Using the pattern found at xfont.pattern does not yield the
          * same substitution results as using the pattern returned by
          * FcNameParse; using the latter results in the desired fallback
          * behaviour whereas the former just results in missing-character
          * rectangles being drawn, at least with some fonts. */
-        if (!(xfont = XftFontOpenName(s.dpy, s.screen, fontname))) {
+        if !(xfont = XftFontOpenName(s.dpy, s.screen, fontname)) {
             fprintf(stderr, "rewm: cannot load font from name: '%s'\n", fontname);
             return NULL;
         }
-        if (!(pattern = FcNameParse((FcChar8 *)fontname))) {
+        if !(pattern = FcNameParse((FcChar8 *)fontname)) {
             fprintf(stderr, "rewm: cannot parse font name to pattern: '%s'\n", fontname);
             XftFontClose(s.dpy, xfont);
             return NULL;
         }
-    } else if (fontpattern) {
-        if (!(xfont = XftFontOpenPattern(s.dpy, fontpattern))) {
+    } else if fontpattern {
+        if !(xfont = XftFontOpenPattern(s.dpy, fontpattern)) {
             fprintf(stderr, "rewm: cannot load font from pattern\n");
             return NULL;
         }
-        /* pattern stays NULL here -- this Fnt is a dynamically-found
-         * fallback leaf, not something we'd ever seed another lookup
-         * from (see the "first font must be loaded from a string"
-         * assumption in getfontforchar()). */
     } else {
         fprintf(stderr, "rewm: xfont_create: no font specified\n");
         return NULL;
     }
-
-    Fnt *font = calloc(1, sizeof(Fnt));
+    font: *Fnt = calloc(1, sizeof(Fnt));
     font.xfont = xfont;
     font.pattern = pattern;
     return font;
 }
 
-static void xfont_free(WMState *s, Fnt *font) {
-    if (!font) return;
-    if (font.pattern) FcPatternDestroy(font.pattern);
+static xfont_free: (s: *WMState, font: *Fnt) void {
+    if !font { return; }
+    if font.pattern { FcPatternDestroy(font.pattern); }
     XftFontClose(s.dpy, font.xfont);
     free(font);
 }
 
-static void freefonts(WMState *s) {
-    while (s.fonts) {
-        Fnt *f = s.fonts;
+static freefonts: (s: *WMState) void {
+    while s.fonts {
+        f: *Fnt = s.fonts;
         s.fonts = f.next;
         xfont_free(s, f);
     }
@@ -402,24 +376,22 @@ static void freefonts(WMState *s) {
  * covered by them falls through to a dynamic per-codepoint
  * XftFontMatch() lookup (see getfontforchar()) instead of just
  * drawing tofu -- so one primary font here is usually enough. */
-static void setupfont(WMState *s) {
-    /* Close the old chain before loading a new one (for hot-reload) */
+static setupfont: (s: *WMState) void {
     freefonts(s);
 
-    for (int i = (int)LENGTH(fontnames) - 1; i >= 0; i--) {
-        Fnt *f = xfont_create(s, fontnames[i], NULL);
-        if (!f) continue;
+    for i := (int)LENGTH(fontnames) - 1; i >= 0; i--; {
+        f: *Fnt = xfont_create(s, fontnames[i], NULL);
+        if !f { continue; }
         f.next = s.fonts;
         s.fonts = f;
     }
 
-    if (!s.fonts) {
-        /* everything configured failed to load -- last resort */
-        Fnt *f = xfont_create(s, "fixed", NULL);
-        if (f) s.fonts = f;
+    if !s.fonts {
+        f: *Fnt = xfont_create(s, "fixed", NULL);
+        if f { s.fonts = f; }
     }
 
-    if (s.fonts) {
+    if s.fonts {
         s.fonth = s.fonts.xfont.ascent + s.fonts.xfont.descent;
     } else {
         fprintf(stderr, "rewm: no fonts loaded at all, bar will be broken\n");
@@ -440,51 +412,52 @@ static void setupfont(WMState *s) {
  * NOTE: `nomatches` is a plain `static` (not on WMState), so it
  * resets on every hot reload -- that's fine, it's purely a perf
  * cache, not correctness-affecting. */
-static Fnt *getfontforchar(WMState *s, FcChar32 rune) {
-    static unsigned int nomatches[128];
-    unsigned int hash, h0, h1;
+static getfontforchar: (s: *WMState, rune: FcChar32) *Fnt {
+    static nomatches: [128]unsigned int;
+    hash: unsigned int;
+    h0  : unsigned int;
+    h1  : unsigned int;
 
-    for (Fnt *f = s.fonts; f; f = f.next)
-        if (XftCharExists(s.dpy, f.xfont, rune))
+    for f := s.fonts; f; f = f.next;
+        if XftCharExists(s.dpy, f.xfont, rune)
             return f;
 
-    /* none of the loaded fonts have it -- ask fontconfig, unless we
-     * already know this codepoint has no match anywhere */
+    // ask fontconfig to get the font that have thsi glyph
     hash = rune;
     hash = ((hash >> 16) ^ hash) * 0x21F0AAAD;
     hash = ((hash >> 15) ^ hash) * 0xD35A2D97;
-    h0 = ((hash >> 15) ^ hash) % LENGTH(nomatches);
-    h1 = (hash >> 17) % LENGTH(nomatches);
-    if (nomatches[h0] == rune || nomatches[h1] == rune)
+    h0   = ((hash >> 15) ^ hash) % LENGTH(nomatches);
+    h1   = (hash >> 17) % LENGTH(nomatches);
+    if nomatches[h0] == rune || nomatches[h1] == rune
         return s.fonts;
 
-    if (!s.fonts || !s.fonts.pattern)
-        return s.fonts; /* nothing sane to seed the lookup from */
+    if !s.fonts || !s.fonts.pattern
+        return s.fonts;
 
-    FcCharSet *fccharset = FcCharSetCreate();
+    fccharset := FcCharSetCreate();
     FcCharSetAddChar(fccharset, rune);
 
-    FcPattern *fcpattern = FcPatternDuplicate(s.fonts.pattern);
+    fcpattern := FcPatternDuplicate(s.fonts.pattern);
     FcPatternAddCharSet(fcpattern, FC_CHARSET, fccharset);
     FcPatternAddBool(fcpattern, FC_SCALABLE, FcTrue);
     FcConfigSubstitute(NULL, fcpattern, FcMatchPattern);
     FcDefaultSubstitute(fcpattern);
 
-    FcResult result;
-    FcPattern *match = XftFontMatch(s.dpy, s.screen, fcpattern, &result);
+    result: FcResult;
+    match := XftFontMatch(s.dpy, s.screen, fcpattern, &result);
 
     FcCharSetDestroy(fccharset);
     FcPatternDestroy(fcpattern);
 
-    if (match) {
-        Fnt *nf = xfont_create(s, NULL, match);
-        if (nf && XftCharExists(s.dpy, nf.xfont, rune)) {
-            Fnt *tail = s.fonts;
-            while (tail.next) tail = tail.next;
+    if match {
+        nf := xfont_create(s, NULL, match);
+        if nf && XftCharExists(s.dpy, nf.xfont, rune) {
+            tail := s.fonts;
+            while tail.next { tail = tail.next; }
             tail.next = nf;
             return nf;
         }
-        if (nf) xfont_free(s, nf);
+        if nf { xfont_free(s, nf); }
         nomatches[nomatches[h0] ? h1 : h0] = rune;
     }
     return s.fonts;
@@ -494,63 +467,64 @@ static Fnt *getfontforchar(WMState *s, FcChar32 rune) {
  * into before XCopyArea-ing the result onto that monitor's barwin --
  * same trick your drw.c uses (drw.drawable / drw_resize), just sized
  * once to the full display width so no per-monitor resize is needed. */
-static void setupdrawable(WMState *s) {
-    unsigned int w = (unsigned int)MAX(s.sw, 1);
-    unsigned int h = (unsigned int)MAX(s.barheight, 1);
+static setupdrawable: (s: *WMState) void {
+    w := (unsigned int)MAX(s.sw, 1);
+    h := (unsigned int)MAX(s.barheight, 1);
 
-    /* Clean up old drawable if it exists (for hot-reload) */
-    if (s.xftdraw) {
+    if s.xftdraw {
         XftDrawDestroy(s.xftdraw);
         s.xftdraw = NULL;
     }
-    if (s.drawable) {
+    if s.drawable {
         XFreePixmap(s.dpy, s.drawable);
         s.drawable = 0;
     }
 
     s.drawable = XCreatePixmap(s.dpy, s.root, w, h, s.depth);
-    s.draww = w;
-    s.drawh = h;
-    s.xftdraw = XftDrawCreate(s.dpy, s.drawable, s.visual, s.cmap);
+    s.draww    = w;
+    s.drawh    = h;
+    s.xftdraw  = XftDrawCreate(s.dpy, s.drawable, s.visual, s.cmap);
 }
 
-static void resizedrawable(WMState *s, unsigned int w, unsigned int h) {
-    if (w <= s.draww && h <= s.drawh) return;
-    if (w < s.draww) w = s.draww;
-    if (h < s.drawh) h = s.drawh;
-    if (s.xftdraw) XftDrawDestroy(s.xftdraw);
-    if (s.drawable) XFreePixmap(s.dpy, s.drawable);
+static resizedrawable: (s: *WMState, w: unsigned int, h: unsigned int) void {
+    if w <= s.draww && h <= s.drawh { return; }
+    if w < s.draww { w = s.draww; }
+    if h < s.drawh { h = s.drawh; }
+    if s.xftdraw { XftDrawDestroy(s.xftdraw); }
+    if s.drawable { XFreePixmap(s.dpy, s.drawable); }
     s.drawable = XCreatePixmap(s.dpy, s.root, w, h, s.depth);
-    s.draww = w;
-    s.drawh = h;
-    s.xftdraw = XftDrawCreate(s.dpy, s.drawable, s.visual, s.cmap);
+    s.draww    = w;
+    s.drawh    = h;
+    s.xftdraw  = XftDrawCreate(s.dpy, s.drawable, s.visual, s.cmap);
 }
 
-static void setupcursors(WMState *s) {
+static setupcursors: (s: *WMState) void {
     s.cur_normal = XCreateFontCursor(s.dpy, XC_left_ptr);
     s.cur_move   = XCreateFontCursor(s.dpy, XC_fleur);
     s.cur_resize = XCreateFontCursor(s.dpy, XC_sizing);
     XDefineCursor(s.dpy, s.root, s.cur_normal);
 }
 
-static int textwidth(WMState *s, const char *text) {
-    if (!text || !*text) return s.lrpad;
-    if (!s.fonts) return (int)strlen(text) * 6 + s.lrpad;
+static textwidth: (s: *WMState, text: *const char) int {
+    if !text || !*text { return s.lrpad; }
+    if !s.fonts { return (int)strlen(text) * 6 + s.lrpad; }
 
-    int w = 0;
-    const char *p = text;
-    while (*p) {
-        FcChar32 rune;
-        int clen = FcUtf8ToUcs4((FcChar8 *)p, &rune, (int)strlen(p));
-        if (clen <= 0) clen = 1;
-        Fnt *f = getfontforchar(s, rune);
-        XGlyphInfo ext;
+    w := 0;
+    p : *const char = text;
+    while p.* {
+        rune : FcChar32;
+        clen := FcUtf8ToUcs4((FcChar8 *)p, &rune, (int)strlen(p));
+        if clen <= 0 { clen = 1; }
+        f := getfontforchar(s, rune);
+        ext: XGlyphInfo;
         XftTextExtentsUtf8(s.dpy, f.xfont, (const FcChar8 *)p, clen, &ext);
         w += ext.xOff;
         p += clen;
     }
     return w + s.lrpad;
 }
+
+// refactor end here for now,,,
 
 /* =========================================================================
  *  Bar
@@ -1883,10 +1857,10 @@ static void movemouse(WMState *s, const Arg *arg) {
         XMaskEvent(s.dpy, ButtonPressMask | ButtonReleaseMask | PointerMotionMask | ExposureMask | SubstructureRedirectMask, &ev);
         if (ev.type == MotionNotify) {
 
-	    if ((ev.xmotion.time - last_time) <= (1000 / refreshrate)) continue;
-	    last_time = ev.xmotion.time;
+            if ((ev.xmotion.time - last_time) <= (1000 / refreshrate)) continue;
+            last_time = ev.xmotion.time;
 
-	    int nx = ocx + (ev.xmotion.x - x0);
+            int nx = ocx + (ev.xmotion.x - x0);
             int ny = ocy + (ev.xmotion.y - y0);
             if (abs((s.selmon.wx) - nx) < SNAP_REGION) nx = s.selmon.wx;
             else if (abs((s.selmon.wx + s.selmon.ww) - (nx + c.w)) < SNAP_REGION)
@@ -1927,8 +1901,8 @@ static void resizemouse(WMState *s, const Arg *arg) {
         XMaskEvent(s.dpy, ButtonPressMask | ButtonReleaseMask | PointerMotionMask | ExposureMask | SubstructureRedirectMask, &ev);
         if (ev.type == MotionNotify) {
 
-	    if ((ev.xmotion.time - last_time) <= (1000 / refreshrate)) continue;
-	    last_time = ev.xmotion.time;
+            if ((ev.xmotion.time - last_time) <= (1000 / refreshrate)) continue;
+            last_time = ev.xmotion.time;
 
             int nw = MAX(ev.xmotion.x - c.x + 1, 1);
             int nh = MAX(ev.xmotion.y - c.y + 1, 1);

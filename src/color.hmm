@@ -6,5 +6,5 @@
 #define COL_SEL_BORDER    "#AF9E82"
 
 #define OPAQUE            0xffU
-static const unsigned int baralpha    = 0xe9U;
+static const unsigned int baralpha    = OPAQUE;
 static const unsigned int borderalpha = OPAQUE;
