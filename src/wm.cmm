@@ -36,7 +36,7 @@ static fontnames: []*const char = {
 #define DEFAULT_GAP            3
 #define DEFAULT_RESIZEHINTS    1
 #define DEFAULT_LOCKFULLSCREEN 1
-#define DEFAULT_REFRESHRATE    60
+#define DEFAULT_REFRESHRATE    120
 #define TITLE_MAX_CHARS        64
 
 static border_px      := BORDER_PX;
@@ -191,8 +191,8 @@ static emojicmd : []*const char = { TERMINAL, "-c", "dialog", "-e", "dmenumoji" 
 
 /* media keys */
 static up_vol       : []*const char = { "pamixer-wrapper",       "raise",                         NULL };
-static down_vol	    : []*const char = { "pamixer-wrapper",       "lower",                         NULL };
-static mute_vol	    : []*const char = { "pamixer-wrapper",       "toggle",                        NULL };
+static down_vol     : []*const char = { "pamixer-wrapper",       "lower",                         NULL };
+static mute_vol     : []*const char = { "pamixer-wrapper",       "toggle",                        NULL };
 static mute_mic_vol : []*const char = { "pactl", "set-source-mute", "@DEFAULT_SOURCE@", "toggle", NULL };
 
 /* brightness keys */
@@ -265,7 +265,7 @@ static getcolor: (s: *WMState, name: *const char, alpha: unsigned int) unsigned 
     c    : XColor;
     cmap := DefaultColormap(s.dpy, s.screen);
     if !XAllocNamedColor(s.dpy, cmap, name, &c, &c) {
-	return BlackPixel(s.dpy, s.screen);
+        return BlackPixel(s.dpy, s.screen);
     }
 
     alpha &= 0xffUL;
@@ -567,8 +567,8 @@ static utf8charlen: (p: *const char) int {
 static utf8strlen: (s: *const char) int {
     n := 0;
     while s.* {
-	s += utf8charlen(s);
-	n++;
+        s += utf8charlen(s);
+        n++;
     }
     return n;
 }
@@ -586,143 +586,143 @@ static truncate_utf8: (src: *const char, dst: *char, dstsize: size_t, max_cp: in
     if src[pos] {
         e: *const char = "\xe2\x80\xa6"; /* … (U+2026, UTF-8) */
         if pos + 3 < dstsize {
-	    dst[pos++] = e[0];
-	    dst[pos++] = e[1];
-	    dst[pos++] = e[2];
-	}
+            dst[pos++] = e[0];
+            dst[pos++] = e[1];
+            dst[pos++] = e[2];
+        }
     }
     if pos < dstsize { dst[pos] = '\0'; }
     else dst[dstsize - 1] = '\0';
 }
 
-// refactor end here for now,,,
-
-static void drawtext(WMState *s, int x, int y, unsigned long fg, unsigned long bg,
-                     XftColor *xfg, int w, int h, const char *text) {
+static drawtext: (s: *WMState, x: int, y: int, fg: unsigned long, bg: unsigned long,
+                  xfg: *XftColor, w: int, h: int, text: *const char) void {
     (void)y;
     (void)fg;
     XSetForeground(s.dpy, s.gc, bg);
     XFillRectangle(s.dpy, s.drawable, s.gc, x, 0, (unsigned)w, (unsigned)h);
-    if (!text || !*text || !s.fonts) return;
+    if !text || !*text || !s.fonts { return; }
 
     /* per-glyph fallback: draw one codepoint at a time, picking
      * whichever font in the chain actually has that glyph. No run
      * batching -- simpler, and the bar redraws are infrequent/cheap
      * enough that per-glyph XftDrawStringUtf8 calls don't matter. */
-    int cx = x + s.lrpad / 2;
-    const char *p = text;
-    while (*p) {
-        FcChar32 rune;
-        int clen = FcUtf8ToUcs4((FcChar8 *)p, &rune, (int)strlen(p));
-        if (clen <= 0) clen = 1;
-        Fnt *f = getfontforchar(s, rune);
-        int ty = (h - (f.xfont.ascent + f.xfont.descent)) / 2 + f.xfont.ascent;
-        XftDrawStringUtf8(s.xftdraw, xfg, f.xfont, cx, ty, (const FcChar8 *)p, clen);
+    cx := x + s.lrpad / 2;
+    p: *const char = text;
+    while p.* {
+        rune: FcChar32;
+        clen := FcUtf8ToUcs4(cast(*FcChar8)p, &rune, cast(int)strlen(p));
+        if clen <= 0 { clen = 1; }
+        f  := getfontforchar(s, rune);
+        ty := (h - (f.xfont.ascent + f.xfont.descent)) / 2 + f.xfont.ascent;
+        XftDrawStringUtf8(s.xftdraw, xfg, f.xfont, cx, ty, cast(*const FcChar8)p, clen);
         XGlyphInfo ext;
-        XftTextExtentsUtf8(s.dpy, f.xfont, (const FcChar8 *)p, clen, &ext);
+        XftTextExtentsUtf8(s.dpy, f.xfont, cast(*const FcChar8)p, clen, &ext);
         cx += ext.xOff;
         p += clen;
     }
 }
 
-static void updatebarname(WMState *s, Monitor *m) {
-    if (!m || !m.barwin) return;
-    int focusedmon = (m == s.selmon);
-    if (m.barfocused == focusedmon) return;
+static updatebarname: (s: *WMState, m: *Monitor) void {
+    if !m || !m.barwin { return; }
+    focusedmon := (m == s.selmon);
+    if m.barfocused == focusedmon { return; }
     m.barfocused = focusedmon;
     XStoreName(s.dpy, m.barwin, focusedmon ? "focused" : "unfocused");
 }
 
-static void drawbar(WMState *s, Monitor *m) {
-    if (!m || !m.showbar || m.barwin == 0) return;
+static drawbar: (s: *WMState, m: *Monitor) void {
+    if !m || !m.showbar || m.barwin == 0 { return; }
     updatebarname(s, m);
     resizedrawable(s, (unsigned)m.ww, (unsigned)s.barheight);
 
-    int x = 0;
-    int occ = 0, urg = 0;
-    for (Client *c = m.clients; c; c = c.next) {
+    x   := 0;
+    occ := 0;
+    urg := 0;
+    for c := m.clients; c; c = c.next; {
         occ |= (int)c.tags;
-        if (c.isurgent) urg |= (int)c.tags;
+        if c.isurgent { urg |= (int)c.tags; }
     }
 
     /* tags */
-    for (int i = 0; i < (int)LENGTH(tagnames); i++) {
-        int sel = (m.tagset[m.seltags] & (1u << i)) != 0;
-        int tagurgent = (urg & (1 << i)) != 0;
-        int w = textwidth(s, tagnames[i]);
-        int scheme = sel ? SchemeSel : SchemeNorm;
-        unsigned long fg = s.col[scheme][ColFg];
-        unsigned long bg = s.col[scheme][ColBg];
-        XftColor *xftfg = &s.xftcol[scheme][ColFg];
-        if (tagurgent && s.urgent_flash_on) {
+    for i := 0; i < (int)LENGTH(tagnames); i++; {
+        sel       := (m.tagset[m.seltags] & (1u << i)) != 0;
+        tagurgent := (urg & (1 << i)) != 0;
+        w         := textwidth(s, tagnames[i]);
+        scheme    := sel ? SchemeSel : SchemeNorm;
+
+        fg: unsigned long = s.col[scheme][ColFg];
+        bg: unsigned long = s.col[scheme][ColBg];
+
+        xftfg := &s.xftcol[scheme][ColFg];
+        if tagurgent && s.urgent_flash_on {
             /* flash: invert the whole tag block instead of just a dot */
             fg = s.col[scheme][ColBg];
             bg = s.col[scheme][ColFg];
             xftfg = &s.xftcol[scheme][ColBg];
         }
         drawtext(s, x, 0, fg, bg, xftfg, w, s.barheight, tagnames[i]);
-        if (occ & (1 << i) && !tagurgent)
+        if occ & (1 << i) && !tagurgent {
             drawrect(s, x + 2, 2, 4, 4, fg, 1);
+        }
         x += w;
     }
 
     /* layout symbol */
-    int lw = textwidth(s, m.ltsymbol);
+    lw := textwidth(s, m.ltsymbol);
     drawtext(s, x, 0, s.col[SchemeNorm][ColFg], s.col[SchemeNorm][ColBg],
              &s.xftcol[SchemeNorm][ColFg], lw, s.barheight, m.ltsymbol);
     x += lw;
 
     /* status text on far right */
-    int sw = textwidth(s, s.statustext);
-    int mid = m.ww - sw;
-    if (mid < x) mid = x;
+    sw  := textwidth(s, s.statustext);
+    mid := m.ww - sw;
+    if mid < x { mid = x; }
     drawtext(s, mid, 0, s.col[SchemeNorm][ColFg], s.col[SchemeNorm][ColBg],
              &s.xftcol[SchemeNorm][ColFg], m.ww - mid, s.barheight, s.statustext);
 
     /* selected window title fills the middle */
-    int tw = mid - x;
-    if (tw > 0) {
-        Client *sel = s.sel;
-        const char *raw = (sel && sel.mon == m) ? sel.name : "";
-        char truncated[256];
+    tw := mid - x;
+    if tw > 0 {
+        sel := s.sel;
+        raw : *const char = (sel && sel.mon == m) ? sel.name : "";
+        truncated: [256]char;
         truncate_utf8(raw, truncated, sizeof(truncated), TITLE_MAX_CHARS);
         drawtext(s, x, 0, s.col[SchemeNorm][ColFg], s.col[SchemeNorm][ColBg],
                  &s.xftcol[SchemeNorm][ColFg], tw, s.barheight, truncated);
-        if (sel && sel.mon == m && sel.isfloating) {
+        if sel && sel.mon == m && sel.isfloating {
             drawrect(s, x + 1, 2, 4, 4, s.col[SchemeNorm][ColFg], 1);
-            // x += 6;
             tw = mid - x;
         }
     }
 
     XCopyArea(s.dpy, s.drawable, m.barwin, s.gc, 0, 0,
               (unsigned)m.ww, (unsigned)s.barheight, 0, 0);
-    XSync(s.dpy, False);
 }
 
-static void drawbars(WMState *s) {
-    for (Monitor *m = s.mons; m; m = m.next)
+static drawbars: (s: *WMState) void {
+    for m := s.mons; m; m = m.next;
         drawbar(s, m);
 }
 
-static void updatestatus(WMState *s) {
-    char **list = NULL;
-    int n;
-    XTextProperty tp;
+static updatestatus: (s: *WMState) void {
+    list : **char = NULL;
+    n    : int;
+    tp   : XTextProperty;
 
     s.statustext[0] = '\0';
-    if (XGetTextProperty(s.dpy, s.root, &tp, XA_WM_NAME) && tp.nitems > 0) {
-        if (tp.encoding == XA_STRING) {
-            strncpy(s.statustext, (char *)tp.value, sizeof(s.statustext) - 1);
-        } else if (XmbTextPropertyToTextList(s.dpy, &tp, &list, &n) >= Success
-                   && n > 0 && list && *list) {
-            strncpy(s.statustext, *list, sizeof(s.statustext) - 1);
+    if XGetTextProperty(s.dpy, s.root, &tp, XA_WM_NAME) && tp.nitems > 0 {
+        if tp.encoding == XA_STRING {
+            strncpy(s.statustext, cast(*char)tp.value, sizeof(s.statustext) - 1);
+        } else if XmbTextPropertyToTextList(s.dpy, &tp, &list, &n) >= Success
+                   && n > 0 && list && list.* {
+            strncpy(s.statustext, list.*, sizeof(s.statustext) - 1);
             XFreeStringList(list);
         }
         s.statustext[sizeof(s.statustext) - 1] = '\0';
         XFree(tp.value);
     }
-    if (!s.statustext[0]) {
+    if !s.statustext[0] {
         strncpy(s.statustext, "rewm", sizeof(s.statustext) - 1);
     }
 }
@@ -730,15 +730,15 @@ static void updatestatus(WMState *s) {
 /* =========================================================================
  *  Client management
  * ========================================================================= */
-static int applysizehints(WMState *s, Client *c, int *x, int *y, int *w, int *h, int interact) {
-    int baseismin;
-    Monitor *m = c.mon;
+static applysizehints: (s: *WMState, c: *Client, x: *int, y: *int, w: *int, h: *int, interact: int) int {
+    baseismin: int;
+    m        := c.mon;
 
-    if (!c.hintsvalid) {
+    if !c.hintsvalid {
         updatesizehints(s, c);
     }
 
-    if (interact) {
+    if interact {
         if (*x > s.sw) *x = s.sw - c.w;
         if (*y > s.sh) *y = s.sh - c.h;
         if (*x + *w + 2 * c.bw < 0) *x = 0;
@@ -749,55 +749,58 @@ static int applysizehints(WMState *s, Client *c, int *x, int *y, int *w, int *h,
         if (*x + *w + 2 * c.bw <= m.wx) *x = m.wx;
         if (*y + *h + 2 * c.bw <= m.wy) *y = m.wy;
     }
-    if (*h < s.barheight) *h = s.barheight;
-    if (*w < s.barheight) *w = s.barheight;
+    if h.* < s.barheight { h.* = s.barheight; }
+    if w.* < s.barheight { w.* = s.barheight; }
 
-    if (resizehints || c.isfloating || layouts[m.sellt].arrange == floating) {
-        if (!c.basew && !c.baseh) {
+    if resizehints || c.isfloating || layouts[m.sellt].arrange == floating {
+        if !c.basew && !c.baseh {
             c.basew = c.baseh = 0;
         }
         baseismin = (c.basew == c.minw && c.baseh == c.minh);
-        if (!baseismin) {
-            if (c.minw && *w < c.minw) *w = c.minw;
-            if (c.minh && *h < c.minh) *h = c.minh;
+        if !baseismin {
+            if c.minw && w.* < c.minw { w.* = c.minw; }
+            if c.minh && h.* < c.minh { h.* = c.minh; }
         }
-        if (c.maxw && *w > c.maxw) *w = c.maxw;
-        if (c.maxh && *h > c.maxh) *h = c.maxh;
+        if c.maxw && w.* > c.maxw { w.* = c.maxw; }
+        if c.maxh && h.* > c.maxh { h.* = c.maxh; }
 
-        if (c.basew && c.incw) {
-            *w -= (*w - c.basew) % c.incw;
+        if c.basew && c.incw {
+            w.* -= (w.* - c.basew) % c.incw;
         }
-        if (c.baseh && c.inch) {
-            *h -= (*h - c.baseh) % c.inch;
+        if c.baseh && c.inch {
+            h.* -= (h.* - c.baseh) % c.inch;
         }
 
-        if (c.maxa > 0.0f && c.mina > 0.0f) {
-            if ((float)*w / *h > c.maxa)
-                *h = (int)((float)*w / c.maxa + 0.5f);
-            else if ((float)*w / *h < c.mina)
-                *w = (int)((float)*h * c.mina + 0.5f);
+        if c.maxa > 0.0f && c.mina > 0.0f {
+            if cast(float)w.* / h.* > c.maxa {
+                h.* = cast(int)(cast(float)w.* / c.maxa + 0.5f);
+            } else if cast(float)w.* / h.* < c.mina {
+                w.* = cast(int)(cast(float)(h.*) * c.mina + 0.5f);
+            }
         }
     }
 
-    return (c.oldx != *x || c.oldy != *y || c.oldw != *w || c.oldh != *h);
+    return (c.oldx != x.* || c.oldy != y.* || c.oldw != w.* || c.oldh != h.*);
 }
 
-static void configure(WMState *s, Client *c) {
-    XConfigureEvent ce;
-    ce.type = ConfigureNotify;
-    ce.display = s.dpy;
-    ce.event = c.win;
-    ce.window = c.win;
-    ce.x = c.x; ce.y = c.y;
-    ce.width = c.w; ce.height = c.h;
-    ce.border_width = c.bw;
-    ce.above = None;
-    ce.override_redirect = False;
+static configure: (s: *WMState, c: *Client) void {
+    ce: XConfigureEvent;
+    ce.type                     = ConfigureNotify;
+    ce.display                  = s.dpy;
+    ce.event                    = c.win;
+    ce.window                   = c.win;
+    ce.x                        = c.x;
+    ce.y                        = c.y;
+    ce.width                    = c.w;
+    ce.height                   = c.h;
+    ce.border_width             = c.bw;
+    ce.above                    = None;
+    ce.override_redirect        = False;
     XSendEvent(s.dpy, c.win, False, StructureNotifyMask, (XEvent *)&ce);
 }
 
-static void resizeclient(WMState *s, Client *c, int x, int y, int w, int h) {
-    XWindowChanges wc;
+static resizeclient: (s: *WMState, c: *Client, x: int, y: int, w: int, h: int) void {
+    wc: XWindowChanges;
     c.oldx = c.x; c.x = wc.x = x;
     c.oldy = c.y; c.y = wc.y = y;
     c.oldw = c.w; c.w = wc.width = w;
@@ -805,24 +808,24 @@ static void resizeclient(WMState *s, Client *c, int x, int y, int w, int h) {
     wc.border_width = c.bw;
     XConfigureWindow(s.dpy, c.win, CWX|CWY|CWWidth|CWHeight|CWBorderWidth, &wc);
     configure(s, c);
-    XSync(s.dpy, False);
 }
 
-static void resize(WMState *s, Client *c, int x, int y, int w, int h, int interact) {
+static resize: (s: *WMState, c: *Client, x: int, y: int, w: int, h: int, interact: int) void {
     applysizehints(s, c, &x, &y, &w, &h, interact);
     resizeclient(s, c, x, y, w, h);
 }
 
-static int isvisible(Monitor *m, Client *c) {
+static isvisible: (m: *Monitor, c: *Client) int {
     return c.issticky || (c.tags & m.tagset[m.seltags]) != 0;
 }
 
-static void showhide(WMState *s, Client *c) {
-    if (!c) return;
-    if (isvisible(c.mon, c)) {
+static showhide: (s: *WMState, c: *Client) void {
+    if !c return;
+    if isvisible(c.mon, c) {
         XMoveWindow(s.dpy, c.win, c.x, c.y);
-        if (c.isfloating && !c.isfullscreen)
+        if c.isfloating && !c.isfullscreen {
             resize(s, c, c.x, c.y, c.w, c.h, 0);
+	}
         showhide(s, c.snext);
     } else {
         showhide(s, c.snext);
@@ -830,72 +833,75 @@ static void showhide(WMState *s, Client *c) {
     }
 }
 
-static void setclientstate(WMState *s, Client *c, long state) {
-    long data[] = { state, None };
+static setclientstate: (s: *WMState, c: *Client, state: long) void {
+    data: []long = { state, None };
     XChangeProperty(s.dpy, c.win, s.wm_state, s.wm_state, 32,
-                    PropModeReplace, (unsigned char *)data, 2);
+                    PropModeReplace, cast(*unsigned char)data, 2);
 }
 
-static int sendevent(WMState *s, Window w, Atom proto, long d0, long d1, long d2, long d3, long d4) {
-    int n;
-    Atom *protocols;
-    Atom mt;
-    int exists = 0;
-    XEvent ev;
+static sendevent: (s: *WMState, w: Window, proto: Atom, d0: long, d1: long, d2: long, d3: long, d4: long) int {
+    n: int;
+    protocols: *Atom;
+    mt: Atom;
+    exists := 0;
+    ev: XEvent;
 
-    if (proto != s.wm_protocols) {
+    if proto != s.wm_protocols {
         mt = s.wm_protocols;
-        if (XGetWMProtocols(s.dpy, w, &protocols, &n)) {
-            while (n-- > 0)
-                if (protocols[n] == proto) { exists = 1; break; }
+        if XGetWMProtocols(s.dpy, w, &protocols, &n) {
+            while n-- > 0 {
+                if protocols[n] == proto { exists = 1; break; }
+	    }
             XFree(protocols);
         }
     } else {
         mt = s.wm_protocols;
         exists = 1;
     }
-    if (exists) {
-        ev.type = ClientMessage;
-        ev.xclient.window = w;
+    if exists {
+        ev.type                 = ClientMessage;
+        ev.xclient.window       = w;
         ev.xclient.message_type = mt;
-        ev.xclient.format = 32;
-        ev.xclient.data.l[0] = d0;
-        ev.xclient.data.l[1] = d1;
-        ev.xclient.data.l[2] = d2;
-        ev.xclient.data.l[3] = d3;
-        ev.xclient.data.l[4] = d4;
+        ev.xclient.format       = 32;
+        ev.xclient.data.l[0]    = d0;
+        ev.xclient.data.l[1]    = d1;
+        ev.xclient.data.l[2]    = d2;
+        ev.xclient.data.l[3]    = d3;
+        ev.xclient.data.l[4]    = d4;
         XSendEvent(s.dpy, w, False, NoEventMask, &ev);
     }
     return exists;
 }
 
-static void setfocus(WMState *s, Client *c) {
-    if (!c.neverfocus) {
+static setfocus: (s: *WMState, c: *Client) void {
+    if !c.neverfocus {
         XSetInputFocus(s.dpy, c.win, RevertToPointerRoot, CurrentTime);
         XChangeProperty(s.dpy, s.root, s.net_active_window, XA_WINDOW, 32,
-                        PropModeReplace, (unsigned char *)&c.win, 1);
+                        PropModeReplace, cast(*unsigned char)&c.win, 1);
     }
     sendevent(s, c.win, s.wm_protocols, s.wm_take_focus, CurrentTime, 0, 0, 0);
 }
 
-static void unfocus(WMState *s, Client *c, int setfocusflag) {
-    if (!c) return;
+static unfocus: (s: *WMState, c: *Client, setfocusflag: int) void {
+    if !c return;
     grabbuttons(s, c, 0);
     XSetWindowBorder(s.dpy, c.win, s.col[SchemeNorm][ColBorder]);
-    if (setfocusflag) {
+    if setfocusflag {
         XSetInputFocus(s.dpy, s.root, RevertToPointerRoot, CurrentTime);
         XDeleteProperty(s.dpy, s.root, s.net_active_window);
     }
 }
 
-static void focus(WMState *s, Client *c) {
-    if (!c || !isvisible(c.mon, c))
+static focus: (s: *WMState, c: *Client) void {
+    if !c || !isvisible(c.mon, c) {
         for (c = s.selmon.stack; c && !isvisible(c.mon, c); c = c.snext);
-    if (s.sel && s.sel != c)
+    }
+    if s.sel && s.sel != c {
         unfocus(s, s.sel, 0);
-    if (c) {
-        if (c.mon != s.selmon) s.selmon = c.mon;
-        if (c.isurgent) c.isurgent = 0;
+    }
+    if c {
+        if c.mon != s.selmon { s.selmon = c.mon; }
+        if c.isurgent        { c.isurgent = 0; }
         detachstack(s, c);
         attachstack(s, c);
         grabbuttons(s, c, 1);
@@ -909,13 +915,14 @@ static void focus(WMState *s, Client *c) {
     drawbars(s);
 }
 
-static void grabbuttons(WMState *s, Client *c, int focused) {
+static grabbuttons: (s: *WMState, c: *Client, focused: int) void {
     XUngrabButton(s.dpy, AnyButton, AnyModifier, c.win);
-    if (!focused)
-        XGrabButton(s.dpy, AnyButton, AnyModifier, c.win, False,
+    if !focused {
+	XGrabButton(s.dpy, AnyButton, AnyModifier, c.win, False,
                     ButtonPressMask, GrabModeSync, GrabModeSync, None, None);
-    unsigned int mods[] = { 0, LockMask, numlockmask, numlockmask | LockMask };
-    for (int i = 0; i < (int)LENGTH(mods); i++) {
+    }
+    mods: []unsigned int = { 0, LockMask, numlockmask, numlockmask | LockMask };
+    for i := 0; i < cast(int)LENGTH(mods); i++; {
         XGrabButton(s.dpy, Button1, MODKEY | mods[i], c.win, False,
                     ButtonPressMask | ButtonMotionMask | ButtonReleaseMask,
                     GrabModeAsync, GrabModeAsync, None, None);
@@ -925,22 +932,23 @@ static void grabbuttons(WMState *s, Client *c, int focused) {
     }
 }
 
-static void grabkeys(WMState *s) {
+static grabkeys:(s: *WMState) void {
     updatenumlockmask(s);
     XUngrabKey(s.dpy, AnyKey, AnyModifier, s.root);
 
-    int mincode, maxcode;
+    mincode: int;
+    maxcode: int;
     XDisplayKeycodes(s.dpy, &mincode, &maxcode);
-    int keysyms_per_keycode;
-    KeySym *keysyms = XGetKeyboardMapping(s.dpy, mincode, maxcode - mincode + 1, &keysyms_per_keycode);
-    if (!keysyms) return;
+    keysyms_per_keycode: int;
+    keysyms := XGetKeyboardMapping(s.dpy, mincode, maxcode - mincode + 1, &keysyms_per_keycode);
+    if !keysyms return;
 
-    for (int kc = mincode; kc <= maxcode; kc++) {
-        KeySym keysym = keysyms[(kc - mincode) * keysyms_per_keycode];
-        for (int i = 0; i < KEY_COUNT; i++) {
-            if (keysym == keys[i].keysym) {
-                unsigned int mods[] = { 0, LockMask, numlockmask, numlockmask | LockMask };
-                for (int j = 0; j < (int)LENGTH(mods); j++)
+    for kc := mincode; kc <= maxcode; kc++; {
+        keysym := keysyms[(kc - mincode) * keysyms_per_keycode];
+        for i := 0; i < KEY_COUNT; i++; {
+            if keysym == keys[i].keysym {
+                mods: []unsigned int = { 0, LockMask, numlockmask, numlockmask | LockMask };
+                for j := 0; j < cast(int)LENGTH(mods); j++;
                     XGrabKey(s.dpy, kc, keys[i].mod | mods[j], s.root, True,
                              GrabModeAsync, GrabModeAsync);
             }
@@ -948,6 +956,8 @@ static void grabkeys(WMState *s) {
     }
     XFree(keysyms);
 }
+
+// refactor end here for now,,,
 
 static void updatenumlockmask(WMState *s) {
     numlockmask = 0;
@@ -1527,6 +1537,21 @@ static void motionnotify(WMState *s, XEvent *e) {
     }
 
     static Monitor *mon = NULL;
+
+    /* fast path: skip the full recttomon() scan (and, more importantly,
+     * skip focus()/drawbars()) for every motion sample that's still
+     * inside the monitor we're already on. This is the overwhelming
+     * majority of samples -- a trackpad can emit hundreds of these a
+     * second, and each one used to pay for a monitor scan plus, on a
+     * crossing, an all-monitor bar redraw. Checking containment against
+     * our own last-known monitor rect also means two monitors with
+     * slightly overlapping/duplicate Xinerama geometry can't cause
+     * flip-flopping every sample -- we only re-evaluate when we're
+     * provably outside the monitor we last settled on. */
+    if (mon && ev.x_root >= mon.mx && ev.x_root < mon.mx + mon.mw &&
+               ev.y_root >= mon.my && ev.y_root < mon.my + mon.mh)
+        return;
+
     Monitor *m = recttomon(s, ev.x_root, ev.y_root, 1, 1);
     if (m != mon && mon) {
         unfocus(s, s.sel, 1);
