@@ -957,29 +957,28 @@ static grabkeys:(s: *WMState) void {
     XFree(keysyms);
 }
 
-// refactor end here for now,,,
-
-static void updatenumlockmask(WMState *s) {
+static updatenumlockmask: (s: *WMState) void {
     numlockmask = 0;
-    XModifierKeymap *modmap = XGetModifierMapping(s.dpy);
-    KeyCode nl = XKeysymToKeycode(s.dpy, XK_Num_Lock);
-    for (int i = 0; i < 8; i++)
-        for (int j = 0; j < modmap.max_keypermod; j++)
-            if (modmap.modifiermap[i * modmap.max_keypermod + j] == nl)
+    modmap := XGetModifierMapping(s.dpy);
+    nl := XKeysymToKeycode(s.dpy, XK_Num_Lock);
+    for i := 0; i < 8; i++;
+        for j := 0; j < modmap.max_keypermod; j++;
+            if modmap.modifiermap[i * modmap.max_keypermod + j] == nl {
                 numlockmask = (1 << i);
+	    }
     XFreeModifiermap(modmap);
 }
 
-static void updatetitle(WMState *s, Client *c) {
-    XTextProperty tp;
-    if (XGetTextProperty(s.dpy, c.win, &tp, s.net_wm_name) && tp.value) {
-        strncpy(c.name, (char *)tp.value, sizeof(c.name) - 1);
+static updatetitle: (s: *WMState, c: *Client) void {
+    tp: XTextProperty;
+    if XGetTextProperty(s.dpy, c.win, &tp, s.net_wm_name) && tp.value {
+        strncpy(c.name, cast(*char)tp.value, sizeof(c.name) - 1);
         c.name[sizeof(c.name) - 1] = '\0';
         XFree(tp.value);
         return;
     }
-    if (XGetTextProperty(s.dpy, c.win, &tp, XA_WM_NAME) && tp.value) {
-        strncpy(c.name, (char *)tp.value, sizeof(c.name) - 1);
+    if XGetTextProperty(s.dpy, c.win, &tp, XA_WM_NAME) && tp.value {
+        strncpy(c.name, cast(*char)tp.value, sizeof(c.name) - 1);
         c.name[sizeof(c.name) - 1] = '\0';
         XFree(tp.value);
         return;
@@ -987,24 +986,25 @@ static void updatetitle(WMState *s, Client *c) {
     strncpy(c.name, "broken", sizeof(c.name) - 1);
 }
 
-static void updatesizehints(WMState *s, Client *c) {
-    long msize;
-    XSizeHints hints;
-    if (!XGetWMNormalHints(s.dpy, c.win, &hints, &msize))
+static updatesizehints: (s: *WMState, c: *Client) void {
+    msize: long;
+    hints: XSizeHints;
+    if !XGetWMNormalHints(s.dpy, c.win, &hints, &msize) {
         hints.flags = 0;
-    if (hints.flags & PBaseSize) { c.basew = hints.base_width; c.baseh = hints.base_height; }
-    else if (hints.flags & PMinSize) { c.basew = hints.min_width; c.baseh = hints.min_height; }
+    }
+    if hints.flags & PBaseSize { c.basew = hints.base_width; c.baseh = hints.base_height; }
+    else if hints.flags & PMinSize { c.basew = hints.min_width; c.baseh = hints.min_height; }
     else { c.basew = c.baseh = 0; }
-    if (hints.flags & PResizeInc) { c.incw = hints.width_inc; c.inch = hints.height_inc; }
+    if hints.flags & PResizeInc { c.incw = hints.width_inc; c.inch = hints.height_inc; }
     else { c.incw = c.inch = 0; }
-    if (hints.flags & PMaxSize) { c.maxw = hints.max_width; c.maxh = hints.max_height; }
+    if hints.flags & PMaxSize { c.maxw = hints.max_width; c.maxh = hints.max_height; }
     else { c.maxw = c.maxh = 0; }
-    if (hints.flags & PMinSize) { c.minw = hints.min_width; c.minh = hints.min_height; }
-    else if (hints.flags & PBaseSize) { c.minw = hints.base_width; c.minh = hints.base_height; }
+    if hints.flags & PMinSize { c.minw = hints.min_width; c.minh = hints.min_height; }
+    else if hints.flags & PBaseSize { c.minw = hints.base_width; c.minh = hints.base_height; }
     else { c.minw = c.minh = 0; }
-    if (hints.flags & PAspect) {
-        c.mina = (float)hints.min_aspect.y / hints.min_aspect.x;
-        c.maxa = (float)hints.max_aspect.x / hints.max_aspect.y;
+    if hints.flags & PAspect {
+        c.mina = cast(float)hints.min_aspect.y / hints.min_aspect.x;
+        c.maxa = cast(float)hints.max_aspect.x / hints.max_aspect.y;
     } else {
         c.mina = c.maxa = 0.0f;
     }
@@ -1012,10 +1012,10 @@ static void updatesizehints(WMState *s, Client *c) {
     c.hintsvalid = 1;
 }
 
-static void updatewmhints(WMState *s, Client *c) {
-    XWMHints *wmh = XGetWMHints(s.dpy, c.win);
-    if (!wmh) return;
-    if (c == s.sel && (wmh.flags & XUrgencyHint)) {
+static updatewmhints: (s: *WMState, c: *Client) void {
+    wmh := XGetWMHints(s.dpy, c.win);
+    if !wmh return;
+    if c == s.sel && (wmh.flags & XUrgencyHint) {
         wmh.flags &= ~XUrgencyHint;
         XSetWMHints(s.dpy, c.win, wmh);
     } else {
@@ -1025,37 +1025,37 @@ static void updatewmhints(WMState *s, Client *c) {
     XFree(wmh);
 }
 
-static void updatewindowtype(WMState *s, Client *c) {
-    Atom actual; int format; unsigned long n, extra;
-    unsigned char *data = NULL;
-    if (XGetWindowProperty(s.dpy, c.win, s.net_wm_window_type, 0, 1, False, XA_ATOM,
-                           &actual, &format, &n, &extra, &data) == Success && data) {
-        Atom t = *(Atom *)data;
+static updatewindowtype: (s: *WMState, c: *Client) void {
+    actual: Atom;
+    format: int;
+    n     : unsigned long;
+    extra : unsigned long;
+    data  : *unsigned char = NULL;
+    if XGetWindowProperty(s.dpy, c.win, s.net_wm_window_type, 0, 1, False, XA_ATOM,
+                          &actual, &format, &n, &extra, &data) == Success && data {
+        t := (cast(*Atom)data).*;
         XFree(data);
-        if (t == s.net_wm_window_type_dialog)
+        if t == s.net_wm_window_type_dialog {
             c.isfloating = 1;
-    }
-    data = NULL;
-    if (XGetWindowProperty(s.dpy, c.win, s.net_wm_state, 0, 1, False, XA_ATOM,
-                           &actual, &format, &n, &extra, &data) == Success && data) {
-        Atom t = *(Atom *)data;
-        XFree(data);
-        if (t == s.net_wm_fullscreen)
+	}
+	if (t == s.net_wm_fullscreen) {
             setfullscreen(s, c, 1);
-        if (t == s.net_wm_sticky)
+	}
+        if (t == s.net_wm_sticky) {
             setsticky(s, c, 1);
+	}
     }
 }
 
-static void attach(WMState *s, Client *c) {
+static attach: (s: *WMState, c: *Client) void {
     c.next = c.mon.clients;
     c.mon.clients = c;
     syncglobalclients(s);
 }
 
-static void attachaside(WMState *s, Client *c) {
-    Client *at = nexttagged(c);
-    if (!at) {
+static attachaside: (s: *WMState, c: *Client) void {
+    at := nexttagged(c);
+    if !at {
         attach(s, c);
         return;
     }
@@ -1064,49 +1064,51 @@ static void attachaside(WMState *s, Client *c) {
     syncglobalclients(s);
 }
 
-static Client *nexttagged(Client *c) {
-    Client *walked;
+static nexttagged: (c: *Client) *Client {
+    walked: *Client;
     for (walked = c.mon.clients; walked && (walked.isfloating || !(walked.tags & c.tags)); walked = walked.next);
     return walked;
 }
 
-static void detach(WMState *s, Client *c) {
-    Client **tc;
+static detach: (s: *WMState, c: *Client) void {
+    tc: **Client;
     for (tc = &c.mon.clients; *tc && *tc != c; tc = &(*tc).next);
-    if (*tc) *tc = c.next;
+    if tc.* { tc.* = c.next; }
     syncglobalclients(s);
 }
 
-static void attachstack(WMState *s, Client *c) {
+static attachstack: (s: *WMState, c: *Client) void {
     (void)s;
     c.snext = c.mon.stack;
     c.mon.stack = c;
 }
 
-static void detachstack(WMState *s, Client *c) {
+static detachstack: (s: *WMState, c: *Client) void {
     (void)s;
-    Client **tc;
+    tc: **Client;
     for (tc = &c.mon.stack; *tc && *tc != c; tc = &(*tc).snext);
-    if (*tc) *tc = c.snext;
+    if tc.* { tc.* = c.snext; }
 }
 
-static void syncglobalclients(WMState *s) {
+static syncglobalclients:(s: *WMState) void {
     XDeleteProperty(s.dpy, s.root, s.net_client_list);
-    for (Monitor *m = s.mons; m; m = m.next)
-        for (Client *c = m.clients; c; c = c.next)
+    for m := s.mons; m; m = m.next;
+        for c := m.clients; c; c = c.next;
             XChangeProperty(s.dpy, s.root, s.net_client_list, XA_WINDOW, 32,
-                            PropModeAppend, (unsigned char *)&c.win, 1);
+                            PropModeAppend, cast(*unsigned char)&c.win, 1);
 }
 
-static Client *nexttiled(Client *c) {
+static nexttiled: (c: *Client) *Client {
     for (; c && (c.isfloating || !isvisible(c.mon, c)); c = c.next);
     return c;
 }
 
-static Monitor *recttomon(WMState *s, int x, int y, int w, int h) {
-    Monitor *m, *r = s.selmon;
-    int a, area = 0;
-    for (m = s.mons; m; m = m.next) {
+static recttomon: (s: *WMState, x: int, y: int, w: int, h: int) *Monitor {
+    m: *Monitor = NULL;
+    r: *Monitor = s.selmon;
+    a          := 0;
+    area       := 0;
+    for m = s.mons; m; m = m.next; {
         if ((a = INTERSECT(x, y, w, h, m)) > area) {
             area = a;
             r = m;
@@ -1115,14 +1117,17 @@ static Monitor *recttomon(WMState *s, int x, int y, int w, int h) {
     return r;
 }
 
-static Monitor *wintomon(WMState *s, Window w) {
-    int x, y;
-    if (w == s.root && getrootptr(s, &x, &y))
+static wintomon: (s: *WMState, w: Window) *Monitor {
+    x: int; y: int;
+    if w == s.root && getrootptr(s, &x, &y) {
         return recttomon(s, x, y, 1, 1);
-    Client *c = wintoclient(s, w);
-    if (c) return c.mon;
+    }
+    c := wintoclient(s, w);
+    if c { return c.mon; }
     return s.selmon;
 }
+
+// refactor end here for now,,,
 
 static Client *wintoclient(WMState *s, Window w) {
     for (Monitor *m = s.mons; m; m = m.next)
