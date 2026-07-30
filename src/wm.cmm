@@ -252,6 +252,8 @@ static keys: []Key = {
     TAGKEYS(XK_7, 6), TAGKEYS(XK_8, 7), TAGKEYS(XK_9, 8),
 };
 
+static int exitcode = REWM_QUIT;
+
 static getcolor: (s: *WMState, name: *const char, alpha: unsigned int) unsigned long {
     c    : XColor;
     cmap := DefaultColormap(s.dpy, s.screen);
@@ -1954,21 +1956,19 @@ static movemouse: (s: *WMState, arg: *const Arg) void {
     }
 }
 
-// stop here for now mark: ,,,
-
-static void resizemouse(WMState *s, const Arg *arg) {
+static resizemouse: (s: *WMState, arg: *const Arg) void {
     (void)arg;
     last_time = 0;
-    Client *c = s.sel;
+    c := s.sel;
     if (!c || c.isfullscreen) return;
     restack(s, s.selmon);
     if (XGrabPointer(s.dpy, s.root, False,
                      ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
                      GrabModeAsync, GrabModeAsync, None, s.cur_resize, CurrentTime) != GrabSuccess)
         return;
-    XWarpPointer(s.dpy, None, c.win, 0, 0, 0, 0, c.w - 1, c.h - 1);
 
-    XEvent ev;
+    XWarpPointer(s.dpy, None, c.win, 0, 0, 0, 0, c.w - 1, c.h - 1);
+    ev: XEvent;
     do {
         XMaskEvent(s.dpy, ButtonPressMask | ButtonReleaseMask | PointerMotionMask | ExposureMask | SubstructureRedirectMask, &ev);
         if (ev.type == MotionNotify) {
@@ -1976,46 +1976,45 @@ static void resizemouse(WMState *s, const Arg *arg) {
             if ((ev.xmotion.time - last_time) <= (1000 / refreshrate)) continue;
             last_time = ev.xmotion.time;
 
-            int nw = MAX(ev.xmotion.x - c.x + 1, 1);
-            int nh = MAX(ev.xmotion.y - c.y + 1, 1);
-            if (!c.isfloating && layouts[s.selmon.sellt].arrange != floating
-                && (abs(nw - c.w) > SNAP_REGION || abs(nh - c.h) > SNAP_REGION)) {
+            nw := MAX(ev.xmotion.x - c.x + 1, 1);
+            nh := MAX(ev.xmotion.y - c.y + 1, 1);
+            if !c.isfloating && layouts[s.selmon.sellt].arrange != floating
+               && (abs(nw - c.w) > SNAP_REGION || abs(nh - c.h) > SNAP_REGION) {
                 c.isfloating = 1;
                 arrange(s, s.selmon);
             }
             if (c.isfloating || layouts[s.selmon.sellt].arrange == floating)
                 resize(s, c, c.x, c.y, nw, nh, 1);
-        } else if (ev.type == Expose) {
+        } else if ev.type == Expose {
             expose(s, &ev);
-        } else if (ev.type == MapRequest) {
+        } else if ev.type == MapRequest {
             maprequest(s, &ev);
         }
-    } while (ev.type != ButtonRelease);
+    } while ev.type != ButtonRelease;
     XWarpPointer(s.dpy, None, c.win, 0, 0, 0, 0, c.w - 1, c.h - 1);
     XUngrabPointer(s.dpy, CurrentTime);
-    Monitor *m = recttomon(s, c.x, c.y, c.w, c.h);
-    if (m != s.selmon) {
+    m := recttomon(s, c.x, c.y, c.w, c.h);
+    if m != s.selmon {
         sendmon(s, c, m);
         s.selmon = m;
         focus(s, NULL);
     }
 }
 
-/* ---- lifecycle ------------------------------------------------------------ */
-static int exitcode = REWM_QUIT;
-
-static void quit(WMState *s, const Arg *arg) {
+static quit: (s: *WMState, arg: *const Arg) void {
     (void)arg;
     cleanup(s);
     exitcode = REWM_QUIT;
     s.running = 0;
 }
 
-static void reload_wm(WMState *s, const Arg *arg) {
+static reload_wm: (s: *WMState, arg: *const Arg) void {
     (void)arg;
     exitcode = REWM_RELOAD;
     s.running = 0;
 }
+
+// stop here for now mark: ,,,
 
 /* =========================================================================
  *  Multi-monitor support
@@ -2393,8 +2392,6 @@ static void cleanup(WMState *s) {
 /* =========================================================================
  *  Urgent tag flash timer
  * ========================================================================= */
-#define URGENT_FLASH_MS 600
-
 static long now_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
