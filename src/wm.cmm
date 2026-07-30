@@ -1326,12 +1326,12 @@ static buttonpress: (s: *WMState, e: *XEvent) void {
                 clickregion = 2;
                 if ev.button == Button1 {
                     a: Arg;
-		    a.i = -1;
-		    setlayout(s, &a); /* cycle */
+                    a.i = -1;
+                    setlayout(s, &a); /* cycle */
                 } else if ev.button == Button3 {
                     a: Arg;
-		    a.i = 1;
-		    setlayout(s, &a); /* monocle */
+                    a.i = 1;
+                    setlayout(s, &a); /* monocle */
                 }
                 return;
             }
@@ -1342,8 +1342,8 @@ static buttonpress: (s: *WMState, e: *XEvent) void {
                 clickregion = 4;
                 if ev.button == Button2 {
                     a: Arg;
-		    a.v = termcmd;
-		    spawn(s, &a);
+                    a.v = termcmd;
+                    spawn(s, &a);
                 }
                 return;
             }
@@ -1351,8 +1351,8 @@ static buttonpress: (s: *WMState, e: *XEvent) void {
             clickregion = 3;
             if ev.button == Button2 {
                 a: Arg;
-		a.i = 0;
-		zoom(s, &a);
+                a.i = 0;
+                zoom(s, &a);
             }
             return;
         }
@@ -1385,9 +1385,9 @@ static keypress: (s: *WMState, e: *XEvent) void {
 
     for i := 0; i < KEY_COUNT; i++; {
         if ks == keys[i].keysym &&
-	   mod == CLEANMASK(keys[i].mod) &&
-	   keys[i].func
-	{
+           mod == CLEANMASK(keys[i].mod) &&
+           keys[i].func
+        {
             keys[i].func(s, &keys[i].arg);
             return;
         }
@@ -1399,7 +1399,7 @@ static enternotify: (s: *WMState, e: *XEvent) void {
     if ((ev.mode != NotifyNormal || ev.detail == NotifyInferior) &&
         ev.window != s.root)
     {
-	    return;
+            return;
     }
     c := wintoclient(s, ev.window);
     m := c ? c.mon : wintomon(s, ev.window);
@@ -1413,7 +1413,7 @@ static expose: (s: *WMState, e: *XEvent) void {
     if ev.count == 0 {
         for m := s.mons; m; m = m.next; {
             if (m.barwin == ev.window) drawbar(s, m);
-	}
+        }
     }
 }
 
@@ -1511,15 +1511,15 @@ static clientmessage: (s: *WMState, e: *XEvent) void {
     if (!c) return;
     if cme.message_type == s.net_wm_state {
         if cast(Atom)cme.data.l[1] == s.net_wm_fullscreen ||
-	   cast(Atom)cme.data.l[2] == s.net_wm_fullscreen
+           cast(Atom)cme.data.l[2] == s.net_wm_fullscreen
         {
-	    setfullscreen(s, c, (cme.data.l[0] == 1 || (cme.data.l[0] == 2 && !c.isfullscreen)));
-	}
+            setfullscreen(s, c, (cme.data.l[0] == 1 || (cme.data.l[0] == 2 && !c.isfullscreen)));
+        }
         if cast(Atom)cme.data.l[1] == s.net_wm_sticky ||
-	   cast(Atom)cme.data.l[2] == s.net_wm_sticky
+           cast(Atom)cme.data.l[2] == s.net_wm_sticky
         {
-	    setsticky(s, c, (cme.data.l[0] == 1 || (cme.data.l[0] == 2 && !c.issticky)));
-	}
+            setsticky(s, c, (cme.data.l[0] == 1 || (cme.data.l[0] == 2 && !c.issticky)));
+        }
     } else if cme.message_type == s.net_active_window {
         if (c != s.sel && !c.isurgent) seturgent(s, c, 1);
     }
@@ -1575,7 +1575,7 @@ static spawn: (s: *WMState, arg: *const Arg) void {
         argv: **const char = cast(**const char)arg.v;
         execvp(argv[0], argv);
         // execvp(argv[0], (char *const *)argv);
-	//                 ^^ idk if the new sytnax support this so for now will use this one
+        //                 ^^ idk if the new sytnax support this so for now will use this one
         fprintf(stderr, "rewm: execvp '%s' failed\n", argv[0]);
         exit(1);
     }
@@ -1602,7 +1602,7 @@ static restack: (s: *WMState, m: *Monitor) void {
                 XConfigureWindow(s.dpy, c.win, CWSibling | CWStackMode, &wc);
                 wc.sibling = c.win;
             }
-	}
+        }
     }
 }
 
@@ -1649,7 +1649,7 @@ static floating: (s: *WMState, m: *Monitor) void {
     for c := m.clients; c; c = c.next; {
         if isvisible(m, c) {
             resize(s, c, c.x, c.y, c.w, c.h, 1);
-	}
+        }
     }
 }
 
@@ -1696,8 +1696,8 @@ static void focusstack(WMState *s, const Arg *arg) {
         if (!c) for (; i; i = i.next) if (isvisible(i.mon, i)) c = i;
     }
     if c {
-	focus(s, c);
-	restack(s, s.selmon);
+        focus(s, c);
+        restack(s, s.selmon);
     }
 }
 
@@ -1867,15 +1867,15 @@ static movestack: (s: *WMState, arg: *const Arg) void {
         for (c = s.sel.next; c && (!isvisible(mon, c) || c.isfloating); c = c.next);
         if !c {
             for (c = mon.clients; c && (!isvisible(mon, c) || c.isfloating); c = c.next);
-	}
+        }
     } else {
         for i = mon.clients; i != s.sel; i = i.next; {
             if (isvisible(mon, i) && !i.isfloating) c = i;
-	}
+        }
         if !c {
             for (; i; i = i.next)
                 if (isvisible(mon, i) && !i.isfloating) c = i;
-	}
+        }
     }
 
     for i = mon.clients; i && (!p || !pc); i = i.next; {
@@ -1915,8 +1915,8 @@ static movemouse: (s: *WMState, arg: *const Arg) void {
     x0: int;
     y0: int;
     if !getrootptr(s, &x0, &y0) {
-	XUngrabPointer(s.dpy, CurrentTime);
-	return;
+        XUngrabPointer(s.dpy, CurrentTime);
+        return;
     }
 
     ev: XEvent;
@@ -2014,31 +2014,33 @@ static reload_wm: (s: *WMState, arg: *const Arg) void {
     s.running = 0;
 }
 
-// stop here for now mark: ,,,
-
 /* =========================================================================
  *  Multi-monitor support
  * ========================================================================= */
-static int isuniquegeom(XineramaScreenInfo *unique, size_t n, XineramaScreenInfo *info) {
-    while (n--)
+static isuniquegeom: (unique: *XineramaScreenInfo, n: size_t, info: *XineramaScreenInfo) int {
+    while n-- {
         if (unique[n].x_org == info.x_org && unique[n].y_org == info.y_org &&
             unique[n].width == info.width && unique[n].height == info.height)
             return 0;
+    }
     return 1;
 }
 
-static int updategeom(WMState *s) {
-    int dirty = 0;
+static updategeom: (s: *WMState) int {
+    dirty := 0;
 
-    if (XineramaIsActive(s.dpy)) {
-        int i, j, n, nn;
-        Client *c;
-        Monitor *m;
+    if XineramaIsActive(s.dpy) {
+	i: int;
+	j: int;
+	n: int;
+	nn: int;
+        c: *Client;
+        m: *Monitor;
 
-        XineramaScreenInfo *info = XineramaQueryScreens(s.dpy, &nn);
-        if (info) {
-            XineramaScreenInfo *unique = malloc((size_t)nn * sizeof(*unique));
-            if (unique) {
+        info := XineramaQueryScreens(s.dpy, &nn);
+        if info {
+            unique: *XineramaScreenInfo = malloc((size_t)nn * sizeof(*unique));
+            if unique {
                 for (n = 0, m = s.mons; m; m = m.next, n++);
 
                 /* only consider unique, non-degenerate geometries as
@@ -2052,10 +2054,7 @@ static int updategeom(WMState *s) {
                         unique[j++] = info[i];
                 nn = j;
 
-                /* new monitors if nn > n -- must actually be linked into
-                 * s.mons, unlike before, or they're silently leaked and
-                 * never used for placement/focus. */
-                for (i = n; i < nn; i++) {
+		for (i = n; i < nn; i++) {
                     for (m = s.mons; m && m.next; m = m.next);
                     if (m)
                         m.next = createmon(s);
@@ -2101,11 +2100,11 @@ static int updategeom(WMState *s) {
             XFree(info);
         }
     } else {
-        if (!s.mons) {
+        if !s.mons {
             s.mons = createmon(s);
         }
-        Monitor *m = s.mons;
-        if (m.mw != s.sw || m.mh != s.sh) {
+        m := s.mons;
+        if m.mw != s.sw || m.mh != s.sh {
             dirty = 1;
             m.mw = m.ww = s.sw;
             m.mh = m.wh = s.sh;
@@ -2114,20 +2113,20 @@ static int updategeom(WMState *s) {
         }
     }
 
-    if (dirty) {
+    if dirty {
         s.selmon = s.mons;
         s.selmon = wintomon(s, s.root);
     }
 
-    if (!s.selmon) {
+    if !s.selmon {
         s.selmon = s.mons;
     }
 
     return dirty;
 }
 
-static Monitor *createmon(WMState *s) {
-    Monitor *m = calloc(1, sizeof(*m));
+static createmon: (s: *WMState) *Monitor {
+    m: *Monitor = calloc(1, sizeof(Monitor));
     if (!m) return NULL;
 
     m.num = 0;
@@ -2162,9 +2161,9 @@ static Monitor *createmon(WMState *s) {
      * falling back to a normal opaque one. */
     int hasargb = (s.visual != DefaultVisual(s.dpy, s.screen));
 
-    XSetWindowAttributes swa;
+    swa: XSetWindowAttributes;
     swa.override_redirect = True;
-    if (hasargb) {
+    if hasargb {
         swa.background_pixel = 0;
         swa.border_pixel = 0;
         swa.colormap = s.cmap;
@@ -2172,21 +2171,21 @@ static Monitor *createmon(WMState *s) {
         swa.background_pixmap = ParentRelative;
     }
     swa.event_mask = ExposureMask | ButtonPressMask | SubstructureNotifyMask;
-    m.barwin = XCreateWindow(s.dpy, s.root, m.mx, m.topbar ? m.my : m.my + m.wh,
-                              (unsigned)m.mw, (unsigned)s.barheight, 0, (int)s.depth,
-                              hasargb ? InputOutput : CopyFromParent, s.visual,
-                              hasargb
-                                  ? (CWOverrideRedirect | CWBackPixel | CWBorderPixel | CWColormap | CWEventMask)
-                                  : (CWOverrideRedirect | CWBackPixmap | CWEventMask),
-                              &swa);
+    m.barwin       = XCreateWindow(s.dpy, s.root, m.mx, m.topbar ? m.my : m.my + m.wh,
+                                   (unsigned)m.mw, (unsigned)s.barheight, 0, (int)s.depth,
+                                   hasargb ? InputOutput : CopyFromParent, s.visual,
+                                   hasargb
+                                       ? (CWOverrideRedirect | CWBackPixel | CWBorderPixel | CWColormap | CWEventMask)
+                                       : (CWOverrideRedirect | CWBackPixmap | CWEventMask),
+                                   &swa);
     XDefineCursor(s.dpy, m.barwin, s.cur_normal);
     XMapRaised(s.dpy, m.barwin);
-    XClassHint ch = { "rewm", "rewm" };
+    ch: XClassHint = { "rewm", "rewm" };
     XSetClassHint(s.dpy, m.barwin, &ch);
 
     m.next = NULL;
-    if (s.mons) {
-        Monitor *last = s.mons;
+    if s.mons {
+        last := s.mons;
         while (last.next) last = last.next;
         last.next = m;
         m.num = last.num + 1;
@@ -2197,19 +2196,19 @@ static Monitor *createmon(WMState *s) {
     return m;
 }
 
-static void cleanupmon(WMState *s, Monitor *m) {
+static cleanupmon: (s: *WMState, m: *Monitor) void {
     if (!m) return;
 
-    if (m.barwin) {
+    if m.barwin {
         XUnmapWindow(s.dpy, m.barwin);
         XDestroyWindow(s.dpy, m.barwin);
         m.barwin = 0;
     }
 
-    if (m == s.mons) {
+    if m == s.mons {
         s.mons = m.next;
     } else {
-        Monitor *prev = s.mons;
+        prev := s.mons;
         while (prev && prev.next != m) prev = prev.next;
         if (prev) prev.next = m.next;
     }
@@ -2217,10 +2216,10 @@ static void cleanupmon(WMState *s, Monitor *m) {
     free(m);
 }
 
-static Monitor *dirtomon(WMState *s, int dir) {
-    Monitor *m;
+static dirtomon: (s: *WMState, dir: int) *Monitor {
+    m: *Monitor;
 
-    if (dir > 0) {
+    if dir > 0 {
         if (!(m = s.selmon.next))
             m = s.mons;
     } else {
@@ -2232,67 +2231,66 @@ static Monitor *dirtomon(WMState *s, int dir) {
     return m;
 }
 
-static void focusmon(WMState *s, const Arg *arg) {
-    Monitor *m = dirtomon(s, arg.i);
+static focusmon: (s: *WMState, arg: *const Arg) void {
+    m := dirtomon(s, arg.i);
     if (m == s.selmon) return;
     unfocus(s, s.sel, 0);
     s.selmon = m;
     focus(s, NULL);
 }
 
-static void sendmon(WMState *s, Client *c, Monitor *m) {
+static sendmon: (s: *WMState, c: *Client, m: *Monitor) void {
     if (c.mon == m) return;
     unfocus(s, c, 1);
     detach(s, c);
     detachstack(s, c);
     c.mon = m;
     c.tags = m.tagset[m.seltags]; /* assign tags of target monitor, or the
-                                    * client silently vanishes -- isvisible()
-                                    * checks c.tags against the destination
-                                    * monitor's *own* selected tagset, which
-                                    * almost never matches whatever tag the
-                                    * client had on its old monitor. */
+                                   * client silently vanishes -- isvisible()
+                                   * checks c.tags against the destination
+                                   * monitor's *own* selected tagset, which
+                                   * almost never matches whatever tag the
+                                   * client had on its old monitor. */
     attach(s, c);
     attachstack(s, c);
     focus(s, NULL);
     arrange(s, NULL);
 }
 
-static void tagmon(WMState *s, const Arg *arg) {
+static tagmon: (s: *WMState, arg: *const Arg) void {
     if (!s.sel) return;
     if (!s.mons.next) return;
     sendmon(s, s.sel, dirtomon(s, arg.i));
 }
 
-static void resizebarwin(WMState *s, Monitor *m) {
+static resizebarwin: (s: *WMState, m: *Monitor) void {
     if (!m || !m.barwin) return;
     XMoveResizeWindow(s.dpy, m.barwin, m.mx, m.topbar ? m.my : m.my + m.wh,
                       (unsigned)m.mw, (unsigned)s.barheight);
 }
 
-/* =========================================================================
- *  One-time setup (survives hot reloads via s.initialized)
- * ========================================================================= */
-static void scanwindows(WMState *s) {
-    Window root_return, parent_return, *wins = NULL;
-    unsigned int n = 0;
+static scanwindows: (s: *WMState) void {
+    root_return: Window;
+    parent_return: Window;
+    wins: *Window = NULL;
+    n: unsigned int = 0;
     if (!XQueryTree(s.dpy, s.root, &root_return, &parent_return, &wins, &n)) return;
 
-    for (unsigned int i = 0; i < n; i++) {
-        XWindowAttributes wa;
+    for i := 0U; i < n; i++; {
+        wa: XWindowAttributes;
         if (!XGetWindowAttributes(s.dpy, wins[i], &wa)) continue;
         if (wa.override_redirect) continue;
         if (iswmwin(s, wins[i])) continue;
         if (wintoclient(s, wins[i])) continue;
 
-        if (wa.map_state == IsViewable) {
-            Window trans = None;
+        if wa.map_state == IsViewable {
+            trans: Window = None;
             if (XGetTransientForHint(s.dpy, wins[i], &trans)) continue;
             createclient(s, wins[i], &wa);
         } else {
-            Atom state;
-            unsigned long nitems;
-            if (getstate(s, wins[i]) == IconicState) {
+            state: Atom;
+            nitems: unsigned long;
+            if getstate(s, wins[i]) == IconicState {
                 createclient(s, wins[i], &wa);
             }
         }
@@ -2300,6 +2298,8 @@ static void scanwindows(WMState *s) {
 
     if (wins) XFree(wins);
 }
+
+// stop here for now mark: ,,,
 
 static long getstate(WMState *s, Window w) {
     Atom real;
