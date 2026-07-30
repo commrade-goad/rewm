@@ -22,7 +22,7 @@
 #define LAUNCHER          "tmenu_runner"
 #define TAGMASK           ((1 << 9) - 1)
 static fontnames: []*const char = {
-    "Monospace:size=11",
+    "Greybeard 22px:size=13",
 };
 
 #define BORDER_PX              2
@@ -1535,37 +1535,25 @@ static focusin: (s: *WMState, e: *XEvent) void {
         setfocus(s, s.sel);
 }
 
-// refactor end here for now ,,,
-
-static void motionnotify(WMState *s, XEvent *e) {
-    XMotionEvent *ev = &e.xmotion;
+static motionnotify: (s: *WMState, e: *XEvent) void {
+    ev := &e.xmotion;
     if (ev.window != s.root) return;
 
-    if (ev.subwindow) {
-        Client *c = wintoclient(s, ev.subwindow);
+    if ev.subwindow {
+        c := wintoclient(s, ev.subwindow);
         if (c && c != s.sel)
             focus(s, c);
         return;
     }
 
-    static Monitor *mon = NULL;
-
-    /* fast path: skip the full recttomon() scan (and, more importantly,
-     * skip focus()/drawbars()) for every motion sample that's still
-     * inside the monitor we're already on. This is the overwhelming
-     * majority of samples -- a trackpad can emit hundreds of these a
-     * second, and each one used to pay for a monitor scan plus, on a
-     * crossing, an all-monitor bar redraw. Checking containment against
-     * our own last-known monitor rect also means two monitors with
-     * slightly overlapping/duplicate Xinerama geometry can't cause
-     * flip-flopping every sample -- we only re-evaluate when we're
-     * provably outside the monitor we last settled on. */
+    // NOTE: this is static for a reason... it will be used later on
+    static mon: *Monitor = NULL;
     if (mon && ev.x_root >= mon.mx && ev.x_root < mon.mx + mon.mw &&
                ev.y_root >= mon.my && ev.y_root < mon.my + mon.mh)
         return;
 
-    Monitor *m = recttomon(s, ev.x_root, ev.y_root, 1, 1);
-    if (m != mon && mon) {
+    m := recttomon(s, ev.x_root, ev.y_root, 1, 1);
+    if m != mon && mon {
         unfocus(s, s.sel, 1);
         s.selmon = m;
         focus(s, NULL);
@@ -1573,118 +1561,115 @@ static void motionnotify(WMState *s, XEvent *e) {
     mon = m;
 }
 
-static void resizerequest(WMState *s, XEvent *e) {
+static resizerequest: (s: *WMState, e: *XEvent) void {
     (void)s; (void)e;
 }
 
-/* =========================================================================
- *  Utilities
- * ========================================================================= */
-static void spawn(WMState *s, const Arg *arg) {
-    if (fork() == 0) {
+static spawn: (s: *WMState, arg: *const Arg) void {
+    if fork() == 0 {
         if (s.dpy) close(ConnectionNumber(s.dpy));
         setsid();
-        const char **argv = (const char **)arg.v;
-        execvp(argv[0], (char *const *)argv);
+        argv: **const char = cast(**const char)arg.v;
+        execvp(argv[0], argv);
+        // execvp(argv[0], (char *const *)argv);
+	//                 ^^ idk if the new sytnax support this so for now will use this one
         fprintf(stderr, "rewm: execvp '%s' failed\n", argv[0]);
         exit(1);
     }
 }
 
-static int getrootptr(WMState *s, int *x, int *y) {
-    Window w;
-    int di;
-    unsigned int dui;
+static getrootptr: (s: *WMState, x: *int, y: *int) int {
+    w  : Window;
+    di : int;
+    dui: unsigned int;
     return XQueryPointer(s.dpy, s.root, &w, &w, x, y, &di, &di, &dui);
 }
 
-static void restack(WMState *s, Monitor *m) {
+static restack: (s: *WMState, m: *Monitor) void {
     drawbar(s, m);
     if (!s.sel || s.sel.mon != m) return;
     if (s.sel.isfloating || layouts[m.sellt].arrange == floating)
         XRaiseWindow(s.dpy, s.sel.win);
-    if (layouts[m.sellt].arrange != floating) {
-        XWindowChanges wc;
+    if layouts[m.sellt].arrange != floating {
+        wc: XWindowChanges;
         wc.stack_mode = Below;
         wc.sibling = m.barwin;
-        for (Client *c = m.stack; c; c = c.snext)
-            if (!c.isfloating && isvisible(m, c)) {
+        for c := m.stack; c; c = c.snext; {
+            if !c.isfloating && isvisible(m, c) {
                 XConfigureWindow(s.dpy, c.win, CWSibling | CWStackMode, &wc);
                 wc.sibling = c.win;
             }
+	}
     }
 }
 
-/* =========================================================================
- *  Layout implementations
- * ========================================================================= */
-static void tile(WMState *s, Monitor *m) {
-    int n = 0;
-    for (Client *c = nexttiled(m.clients); c; c = nexttiled(c.next)) n++;
+static tile: (s: *WMState, m: *Monitor) void {
+    n := 0;
+    for (c := nexttiled(m.clients); c; c = nexttiled(c.next)) n++;
     if (n == 0) return;
 
-    int nmaster = m.nmaster;
+    nmaster := m.nmaster;
     if (nmaster < 0) nmaster = 0;
-    int gap = m.gappx;
+    gap := m.gappx;
 
-    int mw = (n > nmaster) ? (nmaster ? (int)(m.ww * m.mfact) : 0) : (m.ww - gap);
-
-    int i = 0, my = gap, ty = gap;
-    for (Client *c = nexttiled(m.clients); c; c = nexttiled(c.next), i++) {
-        if (i < nmaster) {
-            int h = (m.wh - my) / (MIN(n, nmaster) - i) - gap;
+    mw := (n > nmaster) ? (nmaster ? (int)(m.ww * m.mfact) : 0) : (m.ww - gap);
+    i  := 0;
+    my := gap;
+    ty := gap;
+    for c := nexttiled(m.clients); c; c = nexttiled(c.next), i++; {
+        if i < nmaster {
+            h := (m.wh - my) / (MIN(n, nmaster) - i) - gap;
             resize(s, c, m.wx + gap, m.wy + my, mw - 2 * c.bw - gap, h - 2 * c.bw, 0);
             if (my + c.h + 2 * c.bw + gap < m.wh) my += c.h + 2 * c.bw + gap;
         } else {
-            int h = (m.wh - ty) / (n - i) - gap;
+            h := (m.wh - ty) / (n - i) - gap;
             resize(s, c, m.wx + mw + gap, m.wy + ty, m.ww - mw - 2 * c.bw - 2 * gap, h - 2 * c.bw, 0);
             if (ty + c.h + 2 * c.bw + gap < m.wh) ty += c.h + 2 * c.bw + gap;
         }
     }
 }
 
-static void monocle(WMState *s, Monitor *m) {
-    int n = 0;
-    for (Client *c = m.clients; c; c = c.next)
+static monocle: (s: *WMState, m: *Monitor) void {
+    n := 0;
+    for c := m.clients; c; c = c.next; {
         if (isvisible(m, c)) n++;
-    if (n > 0)
+    }
+    if n > 0 {
         snprintf(m.ltsymbol, sizeof(m.ltsymbol), "<%d>", n);
-    for (Client *c = nexttiled(m.clients); c; c = nexttiled(c.next))
+    }
+    for c := nexttiled(m.clients); c; c = nexttiled(c.next); {
         resize(s, c, m.wx, m.wy, m.ww - 2 * c.bw, m.wh - 2 * c.bw, 0);
+    }
 }
 
-static void floating(WMState *s, Monitor *m) {
-    for (Client *c = m.clients; c; c = c.next)
-        if (isvisible(m, c))
+static floating: (s: *WMState, m: *Monitor) void {
+    for c := m.clients; c; c = c.next; {
+        if isvisible(m, c) {
             resize(s, c, c.x, c.y, c.w, c.h, 1);
+	}
+    }
 }
 
-/* =========================================================================
- *  Arrange
- * ========================================================================= */
-static void arrangemon(WMState *s, Monitor *m) {
+static arrangemon: (s: *WMState, m: *Monitor) void {
     strncpy(m.ltsymbol, layouts[m.sellt].symbol, sizeof(m.ltsymbol) - 1);
     if (layouts[m.sellt].arrange) layouts[m.sellt].arrange(s, m);
 }
 
-static void arrange(WMState *s, Monitor *m) {
-    if (m) {
+static arrange: (s: *WMState, m: *Monitor) void {
+    if m {
         showhide(s, m.stack);
         arrangemon(s, m);
         restack(s, m);
     } else {
-        for (Monitor *mm = s.mons; mm; mm = mm.next) showhide(s, mm.stack);
-        for (Monitor *mm = s.mons; mm; mm = mm.next) arrangemon(s, mm);
+        for (mm := s.mons; mm; mm = mm.next) showhide(s, mm.stack);
+        for (mm := s.mons; mm; mm = mm.next) arrangemon(s, mm);
         drawbar(s, s.selmon);
     }
 }
 
-/* =========================================================================
- *  Key action implementations
- * ========================================================================= */
-static void togglebar(WMState *s, const Arg *arg) {
+static togglebar: (s: *WMState, arg: *const Arg) void {
     (void)arg;
-    Monitor *m = s.selmon;
+    m := s.selmon;
     m.showbar = !m.showbar;
     updatebarpos(s, m);
     XMoveResizeWindow(s.dpy, m.barwin, m.mx, m.topbar ? m.my : m.my + m.wh,
@@ -1695,36 +1680,41 @@ static void togglebar(WMState *s, const Arg *arg) {
 }
 
 static void focusstack(WMState *s, const Arg *arg) {
-    Client *c = NULL;
+    c: *Client = NULL;
     if (!s.sel) return;
     if (s.sel.isfullscreen && lockfullscreen) return;
-    if (arg.i > 0) {
+    if arg.i > 0 {
         for (c = s.sel.next; c && !isvisible(c.mon, c); c = c.next);
         if (!c) for (c = s.selmon.clients; c && !isvisible(c.mon, c); c = c.next);
     } else {
-        Client *i;
+        i: *Client;
         for (i = s.selmon.clients; i != s.sel; i = i.next)
             if (isvisible(i.mon, i)) c = i;
         if (!c) for (; i; i = i.next) if (isvisible(i.mon, i)) c = i;
     }
-    if (c) { focus(s, c); restack(s, s.selmon); }
+    if c {
+	focus(s, c);
+	restack(s, s.selmon);
+    }
 }
 
-static void incnmaster(WMState *s, const Arg *arg) {
+static incnmaster: (s: *WMState, arg: *const Arg) void {
     s.selmon.nmaster = MAX(s.selmon.nmaster + arg.i, 0);
     arrange(s, s.selmon);
 }
 
-static void setmfact(WMState *s, const Arg *arg) {
-    float f = arg.f + s.selmon.mfact;
+static setmfact: (s: *WMState, arg: *const Arg) void {
+    f := arg.f + s.selmon.mfact;
     if (f < 0.05f || f > 0.95f) return;
     s.selmon.mfact = f;
     arrange(s, s.selmon);
 }
 
-static void zoom(WMState *s, const Arg *arg) {
+// refactor end here for now ,,,
+
+static zoom: (s: *WMState, arg: *const Arg) void {
     (void)arg;
-    Client *c = s.sel;
+    c := s.sel;
     if (!c || layouts[s.selmon.sellt].arrange == floating || c.isfloating)
         return;
     if (c == nexttiled(s.selmon.clients))
