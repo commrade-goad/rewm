@@ -15,9 +15,6 @@
 #include <fontconfig/fontconfig.h>
 #include "color.hmm"
 
-/* =========================================================================
- *  Config
- * ========================================================================= */
 // Uncomment this if you want the new spawned window to be followed
 // #define FOLLOW_WINDOW_RULE
 #define MODKEY            Mod4Mask
@@ -158,13 +155,9 @@ static quit                     : (s: *WMState, arg: *const Arg) void;
 static reload_wm                : (s: *WMState, arg: *const Arg) void;
 static focusmon                 : (s: *WMState, arg: *const Arg) void;
 static tagmon                   : (s: *WMState, arg: *const Arg) void;
-
-/* =========================================================================
- *  Layouts
- * ========================================================================= */
-static tile    : (s: *WMState, m: *Monitor) void;
-static monocle : (s: *WMState, m: *Monitor) void;
-static floating: (s: *WMState, m: *Monitor) void;
+static tile                     : (s: *WMState, m: *Monitor) void;
+static monocle                  : (s: *WMState, m: *Monitor) void;
+static floating                 : (s: *WMState, m: *Monitor) void;
 
 static layouts: []Layout = {
     { "<T>",  tile },
@@ -173,9 +166,6 @@ static layouts: []Layout = {
 };
 #define LAYOUT_COUNT ((int)(sizeof(layouts)/sizeof(layouts[0])))
 
-/* =========================================================================
- *  Keybindings
- * ========================================================================= */
 #define TAGKEYS(KEY,TAG)                                                \
     { MODKEY,                KEY, view,       {.ui = 1 << (TAG)} },     \
     { MODKEY|ControlMask,    KEY, toggleview, {.ui = 1 << (TAG)} },     \
@@ -525,9 +515,6 @@ static textwidth: (s: *WMState, text: *const char) int {
     return w + s.lrpad;
 }
 
-/* =========================================================================
- *  Bar
- * ========================================================================= */
 static updatebarpos:(s: *WMState, m: *Monitor) void {
     m.wy = m.my;
     m.wh = m.mh;
@@ -662,7 +649,8 @@ static drawbar: (s: *WMState, m: *Monitor) void {
             xftfg = &s.xftcol[scheme][ColBg];
         }
         drawtext(s, x, 0, fg, bg, xftfg, w, s.barheight, tagnames[i]);
-        if occ & (1 << i) && !tagurgent {
+//        if occ & (1 << i) && !tagurgent {
+        if occ & (1 << i) {
             drawrect(s, x + 2, 2, 4, 4, fg, 1);
         }
         x += w;
@@ -727,9 +715,6 @@ static updatestatus: (s: *WMState) void {
     }
 }
 
-/* =========================================================================
- *  Client management
- * ========================================================================= */
 static applysizehints: (s: *WMState, c: *Client, x: *int, y: *int, w: *int, h: *int, interact: int) int {
     baseismin: int;
     m        := c.mon;
@@ -825,7 +810,7 @@ static showhide: (s: *WMState, c: *Client) void {
         XMoveWindow(s.dpy, c.win, c.x, c.y);
         if c.isfloating && !c.isfullscreen {
             resize(s, c, c.x, c.y, c.w, c.h, 0);
-	}
+        }
         showhide(s, c.snext);
     } else {
         showhide(s, c.snext);
@@ -851,7 +836,7 @@ static sendevent: (s: *WMState, w: Window, proto: Atom, d0: long, d1: long, d2: 
         if XGetWMProtocols(s.dpy, w, &protocols, &n) {
             while n-- > 0 {
                 if protocols[n] == proto { exists = 1; break; }
-	    }
+            }
             XFree(protocols);
         }
     } else {
@@ -918,7 +903,7 @@ static focus: (s: *WMState, c: *Client) void {
 static grabbuttons: (s: *WMState, c: *Client, focused: int) void {
     XUngrabButton(s.dpy, AnyButton, AnyModifier, c.win);
     if !focused {
-	XGrabButton(s.dpy, AnyButton, AnyModifier, c.win, False,
+        XGrabButton(s.dpy, AnyButton, AnyModifier, c.win, False,
                     ButtonPressMask, GrabModeSync, GrabModeSync, None, None);
     }
     mods: []unsigned int = { 0, LockMask, numlockmask, numlockmask | LockMask };
@@ -965,7 +950,7 @@ static updatenumlockmask: (s: *WMState) void {
         for j := 0; j < modmap.max_keypermod; j++;
             if modmap.modifiermap[i * modmap.max_keypermod + j] == nl {
                 numlockmask = (1 << i);
-	    }
+            }
     XFreeModifiermap(modmap);
 }
 
@@ -1037,13 +1022,13 @@ static updatewindowtype: (s: *WMState, c: *Client) void {
         XFree(data);
         if t == s.net_wm_window_type_dialog {
             c.isfloating = 1;
-	}
-	if (t == s.net_wm_fullscreen) {
+        }
+        if (t == s.net_wm_fullscreen) {
             setfullscreen(s, c, 1);
-	}
+        }
         if (t == s.net_wm_sticky) {
             setsticky(s, c, 1);
-	}
+        }
     }
 }
 
@@ -1127,28 +1112,26 @@ static wintomon: (s: *WMState, w: Window) *Monitor {
     return s.selmon;
 }
 
-// refactor end here for now,,,
-
-static Client *wintoclient(WMState *s, Window w) {
-    for (Monitor *m = s.mons; m; m = m.next)
-        for (Client *c = m.clients; c; c = c.next)
+static wintoclient: (s: *WMState, w: Window) *Client {
+    for m := s.mons; m; m = m.next;
+        for c := m.clients; c; c = c.next;
             if (c.win == w) return c;
     return NULL;
 }
 
-static void seturgent(WMState *s, Client *c, int urg) {
+static seturgent: (s: *WMState, c: *Client, urg: int) void {
     c.isurgent = urg;
-    XWMHints *wmh = XGetWMHints(s.dpy, c.win);
-    if (!wmh) return;
+    wmh := XGetWMHints(s.dpy, c.win);
+    if !wmh { return; }
     wmh.flags = urg ? (wmh.flags | XUrgencyHint) : (wmh.flags & ~XUrgencyHint);
     XSetWMHints(s.dpy, c.win, wmh);
     XFree(wmh);
 }
 
-static void setfullscreen(WMState *s, Client *c, int fullscreen) {
-    if (fullscreen && !c.isfullscreen) {
+static setfullscreen: (s: *WMState, c: *Client, fullscreen: int) void {
+    if fullscreen && !c.isfullscreen {
         XChangeProperty(s.dpy, c.win, s.net_wm_state, XA_ATOM, 32,
-                        PropModeReplace, (unsigned char *)&s.net_wm_fullscreen, 1);
+                        PropModeReplace, cast(*unsigned char)&s.net_wm_fullscreen, 1);
         c.isfullscreen = 1;
         c.wasfloating = c.isfloating;
         c.oldbw = c.bw;
@@ -1156,9 +1139,9 @@ static void setfullscreen(WMState *s, Client *c, int fullscreen) {
         c.isfloating = 1;
         resizeclient(s, c, c.mon.mx, c.mon.my, c.mon.mw, c.mon.mh);
         XRaiseWindow(s.dpy, c.win);
-    } else if (!fullscreen && c.isfullscreen) {
+    } else if !fullscreen && c.isfullscreen {
         XChangeProperty(s.dpy, c.win, s.net_wm_state, XA_ATOM, 32,
-                        PropModeReplace, (unsigned char *)0, 0);
+                        PropModeReplace, cast(*unsigned char)0, 0);
         c.isfullscreen = 0;
         c.isfloating = c.wasfloating;
         c.bw = c.oldbw;
@@ -1172,24 +1155,24 @@ static void setfullscreen(WMState *s, Client *c, int fullscreen) {
  * tag mask (r.tags != 0). Callers use that to know whether they should
  * follow the client to its assigned workspace/monitor instead of leaving
  * it to open silently wherever it isn't currently being looked at. */
-static int applyrules(WMState *s, Client *c) {
-    XClassHint ch = { NULL, NULL };
+static applyrules: (s: *WMState, c: *Client) int {
+    ch: XClassHint = {};
     XGetClassHint(s.dpy, c.win, &ch);
-    const char *class    = ch.res_class ? ch.res_class : "broken";
-    const char *instance = ch.res_name  ? ch.res_name  : "broken";
-    int tagrule = 0;
+    class: *const char    = ch.res_class ? ch.res_class : "broken";
+    instance: *const char = ch.res_name  ? ch.res_name  : "broken";
+    tagrule := 0;
 
-    for (int i = 0; i < (int)LENGTH(rules); i++) {
-        const Rule *r = &rules[i];
+    for i := 0; i < cast(int)LENGTH(rules); i++; {
+        r: *const Rule = &rules[i];
         if ((!r.title || strstr(c.name, r.title))
             && (!r.class || strstr(class, r.class))
             && (!r.instance || strstr(instance, r.instance))) {
             c.isfloating = r.isfloating;
             c.tags |= r.tags;
-            if (r.tags) tagrule = 1;
-            if (r.monitor >= 0) {
-                for (Monitor *m = s.mons; m; m = m.next) {
-                    if (m.num == r.monitor) {
+            if r.tags { tagrule = 1; }
+            if r.monitor >= 0 {
+                for m := s.mons; m; m = m.next; {
+                    if m.num == r.monitor {
                         c.mon = m;
                         break;
                     }
@@ -1197,37 +1180,45 @@ static int applyrules(WMState *s, Client *c) {
             }
         }
     }
-    if (ch.res_class) XFree(ch.res_class);
-    if (ch.res_name) XFree(ch.res_name);
+    if ch.res_class { XFree(ch.res_class); }
+    if ch.res_name  { XFree(ch.res_name); }
 
-    if (c.mon) {
-        c.tags = (c.tags & TAGMASK) ? (c.tags & TAGMASK) : c.mon.tagset[c.mon.seltags];
+    if c.mon {
+        c.tags = (c.tags & TAGMASK)
+                 ? (c.tags & TAGMASK)
+                 : c.mon.tagset[c.mon.seltags];
     }
     return tagrule;
 }
 
-static Client *createclient(WMState *s, Window w, XWindowAttributes *wa) {
-    Client *c = calloc(1, sizeof(*c));
-    if (!c) return NULL;
-    c.win = w;
-    c.x = wa.x; c.y = wa.y; c.w = wa.width; c.h = wa.height;
-    c.oldx = c.x; c.oldy = c.y; c.oldw = c.w; c.oldh = c.h;
-    c.bw = border_px;
-    c.oldbw = wa.border_width;
-    c.mon = s.selmon;
+static createclient: (s: *WMState, w: Window, wa: *XWindowAttributes) *Client {
+    c: *Client = calloc(1, sizeof(*c));
+    if !c { return NULL; }
+    c.win  = w;
+    c.x    = wa.x;
+    c.y    = wa.y;
+    c.w    = wa.width;
+    c.h    = wa.height;
+    c.oldx = c.x;
+    c.oldy = c.y;
+    c.oldw = c.w;
+    c.oldh = c.h;
+    c.bw   = border_px;
+    c.oldbw= wa.border_width;
+    c.mon  = s.selmon;
     c.tags = 0;
 
     updatetitle(s, c);
     updatesizehints(s, c);
     updatewmhints(s, c);
 
-    Window trans = None;
-    Client *parent = NULL;
-    int ruletagged = 0;
-    if (XGetTransientForHint(s.dpy, w, &trans) && (parent = wintoclient(s, trans))) {
-        c.isfloating = 1;
-        c.mon = parent.mon;
-        c.tags = parent.tags;
+    trans:   Window = None;
+    parent: *Client = NULL;
+    ruletagged     := 0;
+    if XGetTransientForHint(s.dpy, w, &trans) && (parent = wintoclient(s, trans)) {
+        c.isfloating    = 1;
+        c.mon           = parent.mon;
+        c.tags          = parent.tags;
     } else {
         ruletagged = applyrules(s, c);
     }
@@ -1242,38 +1233,32 @@ static Client *createclient(WMState *s, Window w, XWindowAttributes *wa) {
     configure(s, c);
     XSelectInput(s.dpy, w, EnterWindowMask | FocusChangeMask | PropertyChangeMask | StructureNotifyMask);
     grabbuttons(s, c, 0);
-    if (!c.isfloating) c.isfloating = c.isfixed;
+    if !c.isfloating { c.isfloating = c.isfixed; }
 
-    if (c.isfloating)
+    if c.isfloating {
         XRaiseWindow(s.dpy, c.win);
+    }
 
     attachaside(s, c);
     attachstack(s, c);
 
     XChangeProperty(s.dpy, s.root, s.net_client_list, XA_WINDOW, 32,
-                    PropModeAppend, (unsigned char *)&w, 1);
+                    PropModeAppend, cast(*unsigned char)&w, 1);
     XMoveResizeWindow(s.dpy, c.win, c.x + 2 * s.sw, c.y, (unsigned)c.w, (unsigned)c.h);
     setclientstate(s, c, NormalState);
 
     #ifdef FOLLOW_WINDOW_RULE
-    if (ruletagged && c.mon) {
-        /* A rule pinned this client to an explicit tag (and maybe a
-         * different monitor). Without this, the client would spawn on a
-         * workspace/monitor that isn't visible, the bar would keep showing
-         * the previously selected tag, and focus would stay wherever it
-         * was -- i.e. the window opens "behind your back". Jump the view
-         * there instead, dwm-rule style. */
+    if ruletagged && c.mon {
         s.selmon = c.mon;
-        if (!(c.tags & c.mon.tagset[c.mon.seltags])) {
+        if !(c.tags & c.mon.tagset[c.mon.seltags]) {
             c.mon.seltags ^= 1;
             c.mon.tagset[c.mon.seltags] = c.tags & TAGMASK;
         }
     }
     #endif // FOLLOW_WINDOW_RULE
 
-    if (c.mon == s.selmon) {
-        if (s.sel)
-            unfocus(s, s.sel, 0);
+    if c.mon == s.selmon {
+        if s.sel { unfocus(s, s.sel, 0); }
         s.sel = c;
     }
     arrange(s, c.mon);
@@ -1287,11 +1272,11 @@ static Client *createclient(WMState *s, Window w, XWindowAttributes *wa) {
     return c;
 }
 
-static void unmanage(WMState *s, Client *c, int destroyed) {
-    Monitor *m = c.mon;
+static unmanage:(s: *WMState, c: *Client, destroyed: int) void {
+    m := c.mon;
     detach(s, c);
     detachstack(s, c);
-    if (!destroyed) {
+    if !destroyed {
         XGrabServer(s.dpy);
         XSelectInput(s.dpy, c.win, NoEventMask);
         XUngrabButton(s.dpy, AnyButton, AnyModifier, c.win);
@@ -1300,31 +1285,28 @@ static void unmanage(WMState *s, Client *c, int destroyed) {
         XSync(s.dpy, False);
         XUngrabServer(s.dpy);
     }
-    if (s.sel == c) s.sel = NULL;
+    if s.sel == c { s.sel = NULL; }
     free(c);
     focus(s, NULL);
     arrange(s, m);
 }
 
-/* =========================================================================
- *  Event handlers
- * ========================================================================= */
-static void buttonpress(WMState *s, XEvent *e) {
-    XButtonPressedEvent *ev = &e.xbutton;
-    unsigned int clickregion = 0; /* 0=unset, 1=tagbar, 2=ltsymbol, 3=wintitle, 4=status */
+static buttonpress: (s: *WMState, e: *XEvent) void {
+    ev: *XButtonPressedEvent = &e.xbutton;
+    clickregion: unsigned int = 0; /* 0=unset, 1=tagbar, 2=ltsymbol, 3=wintitle, 4=status */
 
-    for (Monitor *m = s.mons; m; m = m.next) {
-        if (ev.window == m.barwin) {
+    for m := s.mons; m; m = m.next; {
+        if ev.window == m.barwin {
             s.selmon = m;
-            int x = 0;
+            x := 0;
             /* check tag bar region */
-            for (int i = 0; i < (int)LENGTH(tagnames); i++) {
-                int w = textwidth(s, tagnames[i]);
-                if (ev.x >= x && ev.x < x + w) {
-                    Arg a;
+            for i := 0; i < (int)LENGTH(tagnames); i++; {
+                w := textwidth(s, tagnames[i]);
+                if ev.x >= x && ev.x < x + w {
+                    a: Arg;
                     a.ui = 1u << i;
-                    unsigned int mod = CLEANMASK(ev.state);
-                    if (mod == CLEANMASK(MODKEY)) {
+                    mod: unsigned int = CLEANMASK(ev.state);
+                    if mod == CLEANMASK(MODKEY) {
                         if (ev.button == Button1) tagclient(s, &a);
                         else if (ev.button == Button3) toggletag(s, &a);
                     } else {
@@ -1336,108 +1318,125 @@ static void buttonpress(WMState *s, XEvent *e) {
                 x += w;
             }
             /* check layout symbol region */
-            int lw = textwidth(s, m.ltsymbol);
-            if (ev.x >= x && ev.x < x + lw) {
+            lw := textwidth(s, m.ltsymbol);
+            if ev.x >= x && ev.x < x + lw {
                 clickregion = 2;
-                if (ev.button == Button1) {
-                    Arg a; a.i = -1; setlayout(s, &a); /* cycle */
-                } else if (ev.button == Button3) {
-                    Arg a; a.i = 1; setlayout(s, &a); /* monocle */
+                if ev.button == Button1 {
+                    a: Arg;
+		    a.i = -1;
+		    setlayout(s, &a); /* cycle */
+                } else if ev.button == Button3 {
+                    a: Arg;
+		    a.i = 1;
+		    setlayout(s, &a); /* monocle */
                 }
                 return;
             }
             x += lw;
             /* check status text region (right side) */
-            int sw = textwidth(s, s.statustext);
-            if (ev.x >= m.ww - sw) {
+            sw := textwidth(s, s.statustext);
+            if ev.x >= m.ww - sw {
                 clickregion = 4;
-                if (ev.button == Button2) {
-                    Arg a; a.v = termcmd; spawn(s, &a);
+                if ev.button == Button2 {
+                    a: Arg;
+		    a.v = termcmd;
+		    spawn(s, &a);
                 }
                 return;
             }
             /* otherwise it's window title region */
             clickregion = 3;
-            if (ev.button == Button2) {
-                Arg a; a.i = 0; zoom(s, &a);
+            if ev.button == Button2 {
+                a: Arg;
+		a.i = 0;
+		zoom(s, &a);
             }
             return;
         }
     }
 
-    Client *c = wintoclient(s, ev.window);
-    if (!c) return;
+    c := wintoclient(s, ev.window);
+    if !c { return; }
 
     focus(s, c);
     restack(s, s.selmon);
     XAllowEvents(s.dpy, ReplayPointer, CurrentTime);
 
-    unsigned int cleanmod = CLEANMASK(ev.state);
-    if (cleanmod == CLEANMASK(MODKEY) && ev.button == Button1) {
+    cleanmod: unsigned int  = CLEANMASK(ev.state);
+    if cleanmod == CLEANMASK(MODKEY) && ev.button == Button1 {
         Arg a; a.i = 0;
         movemouse(s, &a);
-    } else if (cleanmod == CLEANMASK(MODKEY) && ev.button == Button2) {
+    } else if cleanmod == CLEANMASK(MODKEY) && ev.button == Button2 {
         Arg a; a.i = 0;
         togglefloating(s, &a);
-    } else if (cleanmod == CLEANMASK(MODKEY) && ev.button == Button3) {
+    } else if cleanmod == CLEANMASK(MODKEY) && ev.button == Button3 {
         Arg a; a.i = 0;
         resizemouse(s, &a);
     }
 }
 
-static void keypress(WMState *s, XEvent *e) {
-    XKeyPressedEvent *ev = &e.xkey;
-    KeySym ks = XKeycodeToKeysym(s.dpy, ev.keycode, 0);
-    unsigned int mod = CLEANMASK(ev.state);
+static keypress: (s: *WMState, e: *XEvent) void {
+    ev := &e.xkey;
+    ks := XKeycodeToKeysym(s.dpy, ev.keycode, 0);
+    mod: unsigned int = CLEANMASK(ev.state);
 
-    for (int i = 0; i < KEY_COUNT; i++) {
-        if (ks == keys[i].keysym && mod == CLEANMASK(keys[i].mod) && keys[i].func) {
+    for i := 0; i < KEY_COUNT; i++; {
+        if ks == keys[i].keysym &&
+	   mod == CLEANMASK(keys[i].mod) &&
+	   keys[i].func
+	{
             keys[i].func(s, &keys[i].arg);
             return;
         }
     }
 }
 
-static void enternotify(WMState *s, XEvent *e) {
-    XCrossingEvent *ev = &e.xcrossing;
-    if ((ev.mode != NotifyNormal || ev.detail == NotifyInferior) && ev.window != s.root)
-        return;
-    Client *c = wintoclient(s, ev.window);
-    Monitor *m = c ? c.mon : wintomon(s, ev.window);
+static enternotify: (s: *WMState, e: *XEvent) void {
+    ev := &e.xcrossing;
+    if ((ev.mode != NotifyNormal || ev.detail == NotifyInferior) &&
+        ev.window != s.root)
+    {
+	    return;
+    }
+    c := wintoclient(s, ev.window);
+    m := c ? c.mon : wintomon(s, ev.window);
     if (m != s.selmon) s.selmon = m;
     else if (!c || c == s.sel) return;
     focus(s, c);
 }
 
-static void expose(WMState *s, XEvent *e) {
-    XExposeEvent *ev = &e.xexpose;
-    if (ev.count == 0)
-        for (Monitor *m = s.mons; m; m = m.next)
+static expose: (s: *WMState, e: *XEvent) void {
+    ev := &e.xexpose;
+    if ev.count == 0 {
+        for m := s.mons; m; m = m.next; {
             if (m.barwin == ev.window) drawbar(s, m);
+	}
+    }
 }
 
-static void destroynotify(WMState *s, XEvent *e) {
-    XDestroyWindowEvent *ev = &e.xdestroywindow;
-    Client *c = wintoclient(s, ev.window);
+static destroynotify: (s: *WMState, e: *XEvent) void {
+    ev := &e.xdestroywindow;
+    c  := wintoclient(s, ev.window);
     if (c) unmanage(s, c, 1);
 }
 
-static void unmapnotify(WMState *s, XEvent *e) {
-    XUnmapEvent *ev = &e.xunmap;
-    Client *c = wintoclient(s, ev.window);
+static unmapnotify: (s: *WMState, e: *XEvent) void {
+    ev := &e.xunmap;
+    c  := wintoclient(s, ev.window);
     if (c && !ev.send_event) unmanage(s, c, 0);
 }
 
-static int iswmwin(WMState *s, Window w) {
+static iswmwin: (s: *WMState, w: Window) int {
     if (w == s.wmcheckwin) return 1;
-    for (Monitor *m = s.mons; m; m = m.next)
+    for m := s.mons; m; m = m.next; {
         if (w == m.barwin) return 1;
+    }
     return 0;
 }
 
-static void maprequest(WMState *s, XEvent *e) {
-    XMapRequestEvent *ev = &e.xmaprequest;
-    XWindowAttributes wa;
+static maprequest: (s: *WMState, e: *XEvent) void {
+    ev := &e.xmaprequest;
+    wa: XWindowAttributes;
     if (!XGetWindowAttributes(s.dpy, ev.window, &wa)) return;
     if (wa.override_redirect) return;
     if (iswmwin(s, ev.window)) return;
@@ -1445,10 +1444,10 @@ static void maprequest(WMState *s, XEvent *e) {
     createclient(s, ev.window, &wa);
 }
 
-static void configurerequest(WMState *s, XEvent *e) {
-    XConfigureRequestEvent *ev = &e.xconfigurerequest;
-    Client *c = wintoclient(s, ev.window);
-    if (c) {
+static configurerequest: (s: *WMState, e: *XEvent) void {
+    ev := &e.xconfigurerequest;
+    c  := wintoclient(s, ev.window);
+    if c {
         if (ev.value_mask & CWBorderWidth) c.bw = ev.border_width;
         if (c.isfloating || layouts[c.mon.sellt].arrange == floating) {
             if (ev.value_mask & CWX) c.x = c.mon.mx + ev.x;
@@ -1460,7 +1459,7 @@ static void configurerequest(WMState *s, XEvent *e) {
             configure(s, c);
         }
     } else {
-        XWindowChanges wc;
+        wc: XWindowChanges;
         wc.x = ev.x; wc.y = ev.y;
         wc.width = ev.width; wc.height = ev.height;
         wc.border_width = ev.border_width;
@@ -1471,10 +1470,10 @@ static void configurerequest(WMState *s, XEvent *e) {
     XSync(s.dpy, False);
 }
 
-static void configurenotify(WMState *s, XEvent *e) {
-    XConfigureEvent *ev = &e.xconfigure;
+static configurenotify: (s: *WMState, e: *XEvent) void {
+    ev := &e.xconfigure;
     if (ev.window != s.root) return;
-    int dirty = (s.sw != ev.width || s.sh != ev.height);
+    dirty := (s.sw != ev.width || s.sh != ev.height);
     s.sw = ev.width;
     s.sh = ev.height;
     if (updategeom(s) || dirty) {
@@ -1482,53 +1481,61 @@ static void configurenotify(WMState *s, XEvent *e) {
     }
 }
 
-static void propertynotify(WMState *s, XEvent *e) {
-    XPropertyEvent *ev = &e.xproperty;
-    if (ev.window == s.root && ev.atom == XA_WM_NAME) {
+static propertynotify: (s: *WMState, e: *XEvent) void {
+    ev := &e.xproperty;
+    if ev.window == s.root && ev.atom == XA_WM_NAME {
         updatestatus(s);
         drawbar(s, s.selmon);
         return;
     }
     if (ev.state == PropertyDelete) return;
-    Client *c = wintoclient(s, ev.window);
+    c := wintoclient(s, ev.window);
     if (!c) return;
-    if (ev.atom == XA_WM_HINTS) {
+    if ev.atom == XA_WM_HINTS {
         updatewmhints(s, c);
         drawbar(s, c.mon);
-    } else if (ev.atom == XA_WM_NORMAL_HINTS) {
+    } else if ev.atom == XA_WM_NORMAL_HINTS {
         updatesizehints(s, c);
-    } else if (ev.atom == s.net_wm_name || ev.atom == XA_WM_NAME) {
+    } else if ev.atom == s.net_wm_name || ev.atom == XA_WM_NAME {
         updatetitle(s, c);
         if (c == s.sel) drawbar(s, c.mon);
     }
 }
 
-static void clientmessage(WMState *s, XEvent *e) {
-    XClientMessageEvent *cme = &e.xclient;
-    Client *c = wintoclient(s, cme.window);
+static clientmessage: (s: *WMState, e: *XEvent) void {
+    cme := &e.xclient;
+    c   := wintoclient(s, cme.window);
     if (!c) return;
-    if (cme.message_type == s.net_wm_state) {
-        if ((Atom)cme.data.l[1] == s.net_wm_fullscreen || (Atom)cme.data.l[2] == s.net_wm_fullscreen)
-            setfullscreen(s, c, (cme.data.l[0] == 1 || (cme.data.l[0] == 2 && !c.isfullscreen)));
-        if ((Atom)cme.data.l[1] == s.net_wm_sticky || (Atom)cme.data.l[2] == s.net_wm_sticky)
-            setsticky(s, c, (cme.data.l[0] == 1 || (cme.data.l[0] == 2 && !c.issticky)));
-    } else if (cme.message_type == s.net_active_window) {
+    if cme.message_type == s.net_wm_state {
+        if cast(Atom)cme.data.l[1] == s.net_wm_fullscreen ||
+	   cast(Atom)cme.data.l[2] == s.net_wm_fullscreen
+        {
+	    setfullscreen(s, c, (cme.data.l[0] == 1 || (cme.data.l[0] == 2 && !c.isfullscreen)));
+	}
+        if cast(Atom)cme.data.l[1] == s.net_wm_sticky ||
+	   cast(Atom)cme.data.l[2] == s.net_wm_sticky
+        {
+	    setsticky(s, c, (cme.data.l[0] == 1 || (cme.data.l[0] == 2 && !c.issticky)));
+	}
+    } else if cme.message_type == s.net_active_window {
         if (c != s.sel && !c.isurgent) seturgent(s, c, 1);
     }
 }
 
-static void mappingnotify(WMState *s, XEvent *e) {
-    XMappingEvent *ev = &e.xmapping;
+static mappingnotify: (s: *WMState, e: *XEvent) void {
+    ev := &e.xmapping;
     XRefreshKeyboardMapping(ev);
     if (ev.request == MappingKeyboard)
         grabkeys(s);
 }
 
-static void focusin(WMState *s, XEvent *e) {
-    XFocusChangeEvent *ev = &e.xfocus;
+static focusin: (s: *WMState, e: *XEvent) void {
+    ev := &e.xfocus;
     if (s.sel && ev.window != s.sel.win)
         setfocus(s, s.sel);
 }
+
+// refactor end here for now ,,,
 
 static void motionnotify(WMState *s, XEvent *e) {
     XMotionEvent *ev = &e.xmotion;
