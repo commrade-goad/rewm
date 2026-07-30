@@ -25,6 +25,7 @@ static fontnames: []*const char = {
     "Greybeard 22px:size=13",
 };
 
+#define URGENT_FLASH_MS        600     // in ms
 #define BORDER_PX              2
 #define SNAP_REGION            32
 #define BARHEIGHT_PAD          4
@@ -165,6 +166,7 @@ static layouts: []Layout = {
     { "<F>",  floating },
 };
 #define LAYOUT_COUNT ((int)(sizeof(layouts)/sizeof(layouts[0])))
+#define KEY_COUNT ((int)(sizeof(keys)/sizeof(keys[0])))
 
 #define TAGKEYS(KEY,TAG)                                                \
     { MODKEY,                KEY, view,       {.ui = 1 << (TAG)} },     \
@@ -249,7 +251,6 @@ static keys: []Key = {
     TAGKEYS(XK_4, 3), TAGKEYS(XK_5, 4), TAGKEYS(XK_6, 5),
     TAGKEYS(XK_7, 6), TAGKEYS(XK_8, 7), TAGKEYS(XK_9, 8),
 };
-#define KEY_COUNT ((int)(sizeof(keys)/sizeof(keys[0])))
 
 static getcolor: (s: *WMState, name: *const char, alpha: unsigned int) unsigned long {
     c    : XColor;
@@ -1710,8 +1711,6 @@ static setmfact: (s: *WMState, arg: *const Arg) void {
     arrange(s, s.selmon);
 }
 
-// refactor end here for now ,,,
-
 static zoom: (s: *WMState, arg: *const Arg) void {
     (void)arg;
     c := s.sel;
@@ -1725,7 +1724,7 @@ static zoom: (s: *WMState, arg: *const Arg) void {
     arrange(s, c.mon);
 }
 
-static void view(WMState *s, const Arg *arg) {
+static view: (s: *WMState, arg: *const Arg) void {
     if ((arg.ui & TAGMASK) == s.selmon.tagset[s.selmon.seltags]) return;
     s.selmon.seltags ^= 1;
     if (arg.ui & TAGMASK) s.selmon.tagset[s.selmon.seltags] = arg.ui & TAGMASK;
@@ -1733,34 +1732,36 @@ static void view(WMState *s, const Arg *arg) {
     arrange(s, s.selmon);
 }
 
-static void toggleview(WMState *s, const Arg *arg) {
-    unsigned int newtags = s.selmon.tagset[s.selmon.seltags] ^ (arg.ui & TAGMASK);
+static toggleview: (s: *WMState, arg: *const Arg) void {
+    newtags: unsigned int = s.selmon.tagset[s.selmon.seltags] ^ (arg.ui & TAGMASK);
     if (!newtags) return;
     s.selmon.tagset[s.selmon.seltags] = newtags;
     focus(s, NULL);
     arrange(s, s.selmon);
 }
 
-static void tagclient(WMState *s, const Arg *arg) {
+static tagclient: (s: *WMState, arg: *const Arg) void {
     if (!s.sel || !(arg.ui & TAGMASK)) return;
     s.sel.tags = arg.ui & TAGMASK;
     focus(s, NULL);
     arrange(s, s.selmon);
 }
 
-static void toggletag(WMState *s, const Arg *arg) {
+static toggletag: (s: *WMState, arg: *const Arg) void {
     if (!s.sel) return;
-    unsigned int newtags = s.sel.tags ^ (arg.ui & TAGMASK);
+    newtags: unsigned int = s.sel.tags ^ (arg.ui & TAGMASK);
     if (!newtags) return;
     s.sel.tags = newtags;
     focus(s, NULL);
     arrange(s, s.selmon);
 }
 
-static void killclient(WMState *s, const Arg *arg) {
+static killclient: (s: *WMState, arg: *const Arg) void {
     (void)arg;
     if (!s.sel) return;
-    if (!sendevent(s, s.sel.win, s.wm_protocols, s.wm_delete_window, CurrentTime, 0, 0, 0)) {
+    if !sendevent(s, s.sel.win, s.wm_protocols, s.wm_delete_window,
+                  CurrentTime, 0, 0, 0)
+    {
         XGrabServer(s.dpy);
         XSetCloseDownMode(s.dpy, DestroyAll);
         XKillClient(s.dpy, s.sel.win);
@@ -1769,7 +1770,7 @@ static void killclient(WMState *s, const Arg *arg) {
     }
 }
 
-static void togglefloating(WMState *s, const Arg *arg) {
+static togglefloating: (s: *WMState, arg: *const Arg) void {
     (void)arg;
     if (!s.sel || s.sel.isfullscreen) return;
     s.sel.isfloating = !s.sel.isfloating || s.sel.isfixed;
@@ -1778,13 +1779,13 @@ static void togglefloating(WMState *s, const Arg *arg) {
     arrange(s, s.selmon);
 }
 
-static void togglefullscreen(WMState *s, const Arg *arg) {
+static togglefullscreen: (s: *WMState, arg: *const Arg) void {
     (void)arg;
     if (!s.sel) return;
     setfullscreen(s, s.sel, !s.sel.isfullscreen);
 }
 
-static void setlayout(WMState *s, const Arg *arg) {
+static setlayout: (s: *WMState, arg: *const Arg) void {
     if (arg.i < 0)
         s.selmon.sellt = (s.selmon.sellt + 1) % LAYOUT_COUNT;
     else if (arg.i < LAYOUT_COUNT)
@@ -1794,27 +1795,27 @@ static void setlayout(WMState *s, const Arg *arg) {
     else drawbar(s, s.selmon);
 }
 
-static void setsticky(WMState *s, Client *c, int sticky) {
-    if (sticky && !c.issticky) {
+static setsticky: (s: *WMState, c: *Client, sticky: int) void {
+    if sticky && !c.issticky {
         XChangeProperty(s.dpy, c.win, s.net_wm_state, XA_ATOM, 32,
-                        PropModeReplace, (unsigned char *)&s.net_wm_sticky, 1);
+                        PropModeReplace, cast(*unsigned char)&s.net_wm_sticky, 1);
         c.issticky = 1;
-    } else if (!sticky && c.issticky) {
+    } else if !sticky && c.issticky {
         XChangeProperty(s.dpy, c.win, s.net_wm_state, XA_ATOM, 32,
-                        PropModeReplace, (unsigned char *)0, 0);
+                        PropModeReplace, cast(*unsigned char)0, 0);
         c.issticky = 0;
         arrange(s, c.mon);
     }
 }
 
-static void togglesticky(WMState *s, const Arg *arg) {
+static togglesticky: (s: *WMState, arg: *const Arg) void {
     (void)arg;
     if (!s.sel) return;
     setsticky(s, s.sel, !s.sel.issticky);
     arrange(s, s.selmon);
 }
 
-static void setgaps(WMState *s, const Arg *arg) {
+static setgaps: (s: *WMState, arg: *const Arg) void {
     if (arg.i == 0 || s.selmon.gappx + arg.i < 0)
         s.selmon.gappx = 0;
     else
@@ -1822,58 +1823,66 @@ static void setgaps(WMState *s, const Arg *arg) {
     arrange(s, s.selmon);
 }
 
-static void setgapsabs(WMState *s, const Arg *arg) {
+static setgapsabs: (s: *WMState, arg: *const Arg) void {
     s.selmon.gappx = arg.i;
     arrange(s, s.selmon);
 }
 
-static void setborderpx(WMState *s, const Arg *arg) {
+static setborderpx: (s: *WMState, arg: *const Arg) void {
     if (arg.i == 0 || border_px + arg.i < 0)
         border_px = 0;
     else
         border_px += arg.i;
-    for (Monitor *m = s.mons; m; m = m.next)
-        for (Client *c = m.clients; c; c = c.next) {
+    for m := s.mons; m; m = m.next; {
+        for c := m.clients; c; c = c.next; {
             c.bw = border_px;
             XSetWindowBorderWidth(s.dpy, c.win, (unsigned)c.bw);
         }
+    }
     arrange(s, s.selmon);
 }
 
-static void setborderpxabs(WMState *s, const Arg *arg) {
+static setborderpxabs: (s: *WMState, arg: *const Arg) void {
     border_px = arg.i < 0 ? 0 : arg.i;
-    for (Monitor *m = s.mons; m; m = m.next)
-        for (Client *c = m.clients; c; c = c.next) {
+    for m := s.mons; m; m = m.next; {
+        for c := m.clients; c; c = c.next; {
             c.bw = border_px;
             XSetWindowBorderWidth(s.dpy, c.win, (unsigned)c.bw);
         }
+    }
     arrange(s, s.selmon);
 }
 
-static void movestack(WMState *s, const Arg *arg) {
-    Client *c = NULL, *p = NULL, *pc = NULL, *i;
-    Monitor *mon = s.selmon;
+static movestack: (s: *WMState, arg: *const Arg) void {
+    c : *Client = NULL;
+    p : *Client = NULL;
+    pc: *Client = NULL;
+    i : *Client = NULL;
+    mon        := s.selmon;
     if (!s.sel) return;
 
-    if (arg.i > 0) {
+    if arg.i > 0 {
         for (c = s.sel.next; c && (!isvisible(mon, c) || c.isfloating); c = c.next);
-        if (!c)
+        if !c {
             for (c = mon.clients; c && (!isvisible(mon, c) || c.isfloating); c = c.next);
+	}
     } else {
-        for (i = mon.clients; i != s.sel; i = i.next)
+        for i = mon.clients; i != s.sel; i = i.next; {
             if (isvisible(mon, i) && !i.isfloating) c = i;
-        if (!c)
+	}
+        if !c {
             for (; i; i = i.next)
                 if (isvisible(mon, i) && !i.isfloating) c = i;
+	}
     }
 
-    for (i = mon.clients; i && (!p || !pc); i = i.next) {
+    for i = mon.clients; i && (!p || !pc); i = i.next; {
         if (i.next == s.sel) p = i;
         if (i.next == c) pc = i;
     }
 
-    if (c && c != s.sel) {
-        Client *temp = (s.sel.next == c) ? s.sel : s.sel.next;
+    if c && c != s.sel {
+        temp := (s.sel.next == c) ? s.sel : s.sel.next;
         s.sel.next = (c.next == s.sel) ? c : c.next;
         c.next = temp;
 
@@ -1888,58 +1897,64 @@ static void movestack(WMState *s, const Arg *arg) {
     }
 }
 
-/* ---- mouse move/resize (sxwm-style click-drag with edge snapping) ------- */
-static void movemouse(WMState *s, const Arg *arg) {
+static movemouse: (s: *WMState, arg: *const Arg) void {
     (void)arg;
-    Client *c = s.sel;
+    c := s.sel;
     last_time = 0;
     if (!c || c.isfullscreen) return;
     restack(s, s.selmon);
-    int ocx = c.x, ocy = c.y;
+    ocx := c.x;
+    ocy := c.y;
     if (XGrabPointer(s.dpy, s.root, False,
                      ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
                      GrabModeAsync, GrabModeAsync, None, s.cur_move, CurrentTime) != GrabSuccess)
         return;
-    int x0, y0;
-    if (!getrootptr(s, &x0, &y0)) { XUngrabPointer(s.dpy, CurrentTime); return; }
 
-    XEvent ev;
+    x0: int;
+    y0: int;
+    if !getrootptr(s, &x0, &y0) {
+	XUngrabPointer(s.dpy, CurrentTime);
+	return;
+    }
+
+    ev: XEvent;
     do {
         XMaskEvent(s.dpy, ButtonPressMask | ButtonReleaseMask | PointerMotionMask | ExposureMask | SubstructureRedirectMask, &ev);
-        if (ev.type == MotionNotify) {
-
+        if ev.type == MotionNotify {
             if ((ev.xmotion.time - last_time) <= (1000 / refreshrate)) continue;
             last_time = ev.xmotion.time;
 
-            int nx = ocx + (ev.xmotion.x - x0);
-            int ny = ocy + (ev.xmotion.y - y0);
+            nx := ocx + (ev.xmotion.x - x0);
+            ny := ocy + (ev.xmotion.y - y0);
             if (abs((s.selmon.wx) - nx) < SNAP_REGION) nx = s.selmon.wx;
             else if (abs((s.selmon.wx + s.selmon.ww) - (nx + c.w)) < SNAP_REGION)
                 nx = s.selmon.wx + s.selmon.ww - c.w;
             if (abs(s.selmon.wy - ny) < SNAP_REGION) ny = s.selmon.wy;
             else if (abs((s.selmon.wy + s.selmon.wh) - (ny + c.h)) < SNAP_REGION)
                 ny = s.selmon.wy + s.selmon.wh - c.h;
-            if (!c.isfloating && layouts[s.selmon.sellt].arrange != floating
-                && (abs(nx - c.x) > SNAP_REGION || abs(ny - c.y) > SNAP_REGION)) {
+            if !c.isfloating && layouts[s.selmon.sellt].arrange != floating
+               && (abs(nx - c.x) > SNAP_REGION || abs(ny - c.y) > SNAP_REGION) {
                 c.isfloating = 1;
                 arrange(s, s.selmon);
             }
             if (c.isfloating || layouts[s.selmon.sellt].arrange == floating)
                 resize(s, c, nx, ny, c.w, c.h, 1);
-        } else if (ev.type == Expose) {
+        } else if ev.type == Expose {
             expose(s, &ev);
-        } else if (ev.type == MapRequest) {
+        } else if ev.type == MapRequest {
             maprequest(s, &ev);
         }
-    } while (ev.type != ButtonRelease);
+    } while ev.type != ButtonRelease;
     XUngrabPointer(s.dpy, CurrentTime);
-    Monitor *m = recttomon(s, c.x, c.y, c.w, c.h);
-    if (m != s.selmon) {
+    m := recttomon(s, c.x, c.y, c.w, c.h);
+    if m != s.selmon {
         sendmon(s, c, m);
         s.selmon = m;
         focus(s, NULL);
     }
 }
+
+// stop here for now mark: ,,,
 
 static void resizemouse(WMState *s, const Arg *arg) {
     (void)arg;

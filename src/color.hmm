@@ -1,10 +1,10 @@
+#define OPAQUE            0xffU
+
 #define COL_NORM_BG       "#F9EEDC"
 #define COL_NORM_FG       "#191816"
-#define COL_NORM_BORDER   "#D0BC9A"
+#define COL_NORM_BORDER   "#F9EEDC"
 #define COL_SEL_BG        "#AF9E82"
 #define COL_SEL_FG        "#F9EEDC"
 #define COL_SEL_BORDER    "#AF9E82"
-
-#define OPAQUE            0xffU
-static const unsigned int baralpha    = OPAQUE;
-static const unsigned int borderalpha = OPAQUE;
+static baralpha: const unsigned int    = OPAQUE;
+static borderalpha: const unsigned int = OPAQUE;
