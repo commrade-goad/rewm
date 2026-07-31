@@ -22,7 +22,8 @@
 #define LAUNCHER          "tmenu_runner"
 #define TAGMASK           ((1 << 9) - 1)
 static fontnames: []*const char = {
-    "Greybeard 22px:size=13",
+//    "CMMonoRomanMing:size=12",
+    "New Heterodox Mono:size=12",
 };
 
 #define URGENT_FLASH_MS        600     // in ms
@@ -161,9 +162,9 @@ static monocle                  : (s: *WMState, m: *Monitor) void;
 static floating                 : (s: *WMState, m: *Monitor) void;
 
 static layouts: []Layout = {
-    { "<T>",  tile },
-    { "<M>",  monocle },
-    { "<F>",  floating },
+    { "[T]",  tile },
+    { "[M]",  monocle },
+    { "[F]",  floating },
 };
 #define LAYOUT_COUNT ((int)(sizeof(layouts)/sizeof(layouts[0])))
 #define KEY_COUNT ((int)(sizeof(keys)/sizeof(keys[0])))
@@ -1637,7 +1638,7 @@ static monocle: (s: *WMState, m: *Monitor) void {
         if (isvisible(m, c)) n++;
     }
     if n > 0 {
-        snprintf(m.ltsymbol, sizeof(m.ltsymbol), "<%d>", n);
+        snprintf(m.ltsymbol, sizeof(m.ltsymbol), "[%d]", n);
     }
     for c := nexttiled(m.clients); c; c = nexttiled(c.next); {
         resize(s, c, m.wx, m.wy, m.ww - 2 * c.bw, m.wh - 2 * c.bw, 0);
