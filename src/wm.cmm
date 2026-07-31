@@ -1930,10 +1930,10 @@ static movemouse: (s: *WMState, arg: *const Arg) void {
             ny := ocy + (ev.xmotion.y - y0);
             if (abs((s.selmon.wx) - nx) < SNAP_REGION) nx = s.selmon.wx;
             else if (abs((s.selmon.wx + s.selmon.ww) - (nx + c.w)) < SNAP_REGION)
-                nx = s.selmon.wx + s.selmon.ww - c.w;
+                nx = s.selmon.wx + s.selmon.ww - c.w - (2 * c.bw);
             if (abs(s.selmon.wy - ny) < SNAP_REGION) ny = s.selmon.wy;
             else if (abs((s.selmon.wy + s.selmon.wh) - (ny + c.h)) < SNAP_REGION)
-                ny = s.selmon.wy + s.selmon.wh - c.h;
+                ny = s.selmon.wy + s.selmon.wh - c.h - (2 * c.bw);
             if !c.isfloating && layouts[s.selmon.sellt].arrange != floating
                && (abs(nx - c.x) > SNAP_REGION || abs(ny - c.y) > SNAP_REGION) {
                 c.isfloating = 1;
@@ -2299,25 +2299,24 @@ static scanwindows: (s: *WMState) void {
     if (wins) XFree(wins);
 }
 
-// stop here for now mark: ,,,
+static getstate: (s: *WMState, w: Window) long {
+    real: Atom;
+    format: int;
+    n: unsigned long;
+    extra: unsigned long;
+    data: *unsigned char = NULL;
+    result: long = -1;
 
-static long getstate(WMState *s, Window w) {
-    Atom real;
-    int format;
-    unsigned long n, extra;
-    unsigned char *data = NULL;
-    long result = -1;
-
-    if (XGetWindowProperty(s.dpy, w, s.wm_state, 0L, 2L, False, s.wm_state,
-                           &real, &format, &n, &extra, &data) == Success) {
+    if XGetWindowProperty(s.dpy, w, s.wm_state, 0L, 2L, False, s.wm_state,
+                          &real, &format, &n, &extra, &data) == Success {
         if (n != 0)
-            result = *(long *)data;
+            result = (cast(*long)data).*;
         XFree(data);
     }
     return result;
 }
 
-static void setupewmh(WMState *s) {
+static setupewmh: (s: *WMState) void {
     s.net_supported             = XInternAtom(s.dpy, "_NET_SUPPORTED", False);
     s.net_wm_window_type        = XInternAtom(s.dpy, "_NET_WM_WINDOW_TYPE", False);
     s.net_wm_window_type_dialog = XInternAtom(s.dpy, "_NET_WM_WINDOW_TYPE_DIALOG", False);
@@ -2325,30 +2324,30 @@ static void setupewmh(WMState *s) {
 
     s.wmcheckwin = XCreateSimpleWindow(s.dpy, s.root, 0, 0, 1, 1, 0, 0, 0);
     XChangeProperty(s.dpy, s.wmcheckwin, s.net_wm_check, XA_WINDOW, 32,
-                    PropModeReplace, (unsigned char *)&s.wmcheckwin, 1);
+                    PropModeReplace, cast(*unsigned char)&s.wmcheckwin, 1);
     XChangeProperty(s.dpy, s.wmcheckwin, s.net_wm_name, s.utf8_string, 8,
-                    PropModeReplace, (unsigned char *)"rewm", 4);
+                    PropModeReplace, cast(*unsigned char)"rewm", 4);
     XChangeProperty(s.dpy, s.root, s.net_wm_check, XA_WINDOW, 32,
-                    PropModeReplace, (unsigned char *)&s.wmcheckwin, 1);
+                    PropModeReplace, cast(*unsigned char)&s.wmcheckwin, 1);
 
-    Atom supported[] = {
+    supported: []Atom = {
         s.net_supported, s.net_wm_name, s.net_wm_state, s.net_wm_fullscreen,
         s.net_active_window, s.net_client_list, s.net_wm_window_type,
         s.net_wm_window_type_dialog, s.net_wm_check,
     };
     XChangeProperty(s.dpy, s.root, s.net_supported, XA_ATOM, 32,
-                    PropModeReplace, (unsigned char *)supported, (int)LENGTH(supported));
+                    PropModeReplace, cast(*unsigned char)supported, (int)LENGTH(supported));
     XDeleteProperty(s.dpy, s.root, s.net_client_list);
 }
 
-static void cleanup(WMState *s) {
+static cleanup: (s: *WMState) void {
     if (!s.initialized) return;
 
-    Arg a = { .ui = ~0 };
+    a: Arg = { .ui = ~0 };
     view(s, &a);
 
-    Layout lt = { "", NULL };
-    for (Monitor *m = s.mons; m; m = m.next) {
+    lt: Layout = { "", NULL };
+    for m := s.mons; m; m = m.next; {
         m.sellt = 0;
         strncpy(m.ltsymbol, lt.symbol, sizeof(m.ltsymbol) - 1);
     }
@@ -2357,8 +2356,8 @@ static void cleanup(WMState *s) {
 
     XSetInputFocus(s.dpy, s.root, RevertToPointerRoot, CurrentTime);
 
-    while (s.clients) {
-        Client *c = s.clients;
+    while s.clients {
+        c := s.clients;
         s.clients = c.next;
         XUngrabButton(s.dpy, AnyButton, AnyModifier, c.win);
         setclientstate(s, c, WithdrawnState);
@@ -2366,20 +2365,20 @@ static void cleanup(WMState *s) {
         free(c);
     }
 
-    while (s.mons) {
+    while s.mons {
         cleanupmon(s, s.mons);
     }
 
-    if (s.wmcheckwin) {
+    if s.wmcheckwin {
         XDestroyWindow(s.dpy, s.wmcheckwin);
         s.wmcheckwin = 0;
     }
 
     freexftcolors(s);
     freefonts(s);
-    if (s.xftdraw) { XftDrawDestroy(s.xftdraw); s.xftdraw = NULL; }
-    if (s.drawable) { XFreePixmap(s.dpy, s.drawable); s.drawable = 0; }
-    if (s.gc) { XFreeGC(s.dpy, s.gc); s.gc = NULL; }
+    if s.xftdraw  { XftDrawDestroy(s.xftdraw); s.xftdraw = NULL; }
+    if s.drawable { XFreePixmap(s.dpy, s.drawable); s.drawable = 0; }
+    if s.gc       { XFreeGC(s.dpy, s.gc); s.gc = NULL; }
 
     XDeleteProperty(s.dpy, s.root, s.net_supported);
     XDeleteProperty(s.dpy, s.root, s.net_wm_check);
@@ -2389,26 +2388,20 @@ static void cleanup(WMState *s) {
     s.initialized = 0;
 }
 
-/* =========================================================================
- *  Urgent tag flash timer
- * ========================================================================= */
-static long now_ms(void) {
+static now_ms: () long {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
-static int hasurgentanywhere(WMState *s) {
-    for (Monitor *m = s.mons; m; m = m.next)
-        for (Client *c = m.clients; c; c = c.next)
+static hasurgentanywhere: (s: *WMState) int {
+    for (m := s.mons; m; m = m.next)
+        for (c := m.clients; c; c = c.next)
             if (c.isurgent) return 1;
     return 0;
 }
 
-/* =========================================================================
- *  Entry point — called from host.c after JIT compile
- * ========================================================================= */
-int wm_entry(WMState *s) {
+wm_entry: (s: *WMState) int {
     exitcode = REWM_QUIT;
 
     /* Defensive: release any grab that might still be held from a
@@ -2447,20 +2440,15 @@ int wm_entry(WMState *s) {
     setupfont(s);
     setupdrawable(s);
 
-    for (Monitor *m = s.mons; m; m = m.next) {
+    for m := s.mons; m; m = m.next; {
         updatebarpos(s, m);
         resizebarwin(s, m);
     }
 
-    if (!s.initialized) {
+    if !s.initialized {
         s.sw = DisplayWidth (s.dpy, s.screen);
         s.sh = DisplayHeight(s.dpy, s.screen);
 
-        /* Against s.drawable, not s.root: a GC is only valid for
-         * drawables sharing its creation depth, and s.drawable/barwin
-         * are now s.depth (32 if an ARGB visual was found), which can
-         * differ from root's default depth. setupdrawable() above has
-         * already created s.drawable by this point. */
         s.gc = XCreateGC(s.dpy, s.drawable, 0, NULL);
         setupcursors(s);
         setupewmh(s);
@@ -2486,30 +2474,30 @@ int wm_entry(WMState *s) {
     arrange(s, NULL);
     drawbars(s);
 
-    XEvent ev;
-    while (XPending(s.dpy) > 0) {
+    ev: XEvent;
+    while XPending(s.dpy) > 0 {
         XNextEvent(s.dpy, &ev);
     }
 
     s.running = 1;
     XSync(s.dpy, False);
-    while (s.running && !s.sig_caught) {
-        if (XPending(s.dpy) == 0) {
-            if (hasurgentanywhere(s)) {
-                long t = now_ms();
-                if (t - s.last_flash_ms >= URGENT_FLASH_MS) {
+    while s.running && !s.sig_caught {
+        if XPending(s.dpy) == 0 {
+            if hasurgentanywhere(s) {
+                t := now_ms();
+                if t - s.last_flash_ms >= URGENT_FLASH_MS {
                     s.last_flash_ms = t;
                     s.urgent_flash_on = !s.urgent_flash_on;
                     drawbars(s);
                 }
-            } else if (s.urgent_flash_on) {
+            } else if s.urgent_flash_on {
                 s.urgent_flash_on = 0;
             }
             usleep(5000);
             continue;
         }
         XNextEvent(s.dpy, &ev);
-        switch (ev.type) {
+        switch ev.type {
         case ButtonPress:       buttonpress(s, &ev);       break;
         case KeyPress:          keypress(s, &ev);          break;
         case EnterNotify:       enternotify(s, &ev);       break;
