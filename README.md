@@ -1,5 +1,7 @@
 # rewm - JIT-reloadable X11 window manager
 
+![img](./assets/sc.png)
+
 `rewm` is not minimal, **dwm-style X11 window manager** where WM logic is compiled at runtime using a CMM JIT pipeline (which is a fork of MIR c2mir).
 
 Instead of rebuilding and restarting the WM for every logic change, you edit the WM source and reload to apply your latest changes.
