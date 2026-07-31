@@ -652,7 +652,6 @@ static drawbar: (s: *WMState, m: *Monitor) void {
             xftfg = &s.xftcol[scheme][ColBg];
         }
         drawtext(s, x, 0, fg, bg, xftfg, w, s.barheight, tagnames[i]);
-//        if occ & (1 << i) && !tagurgent {
         if occ & (1 << i) {
             drawrect(s, x + 2, 2, 4, 4, fg, 1);
         }
