@@ -5,7 +5,7 @@
 `rewm` is not minimal, **dwm-style X11 window manager** where WM logic is compiled at runtime using a CMM JIT pipeline (which is a fork of MIR c2mir).
 
 Instead of rebuilding and restarting the WM for every logic change, you edit the WM source and reload to apply your latest changes.
-By this design you are not only stuck with the default dwm-style wm, you can modify the `src/wm.c` live to make it floating wm etc...
+By this design you are not only stuck with the default dwm-style wm, you can modify the `src/wm.cmm` live to make it floating wm etc...
 
 ---
 
