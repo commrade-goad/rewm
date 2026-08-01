@@ -22,7 +22,7 @@ const char *cflags[] = {
 };
 const int ncflags = sizeof cflags / sizeof cflags[0];
 
-const char *ldflags[] = {"-lm", "-ldl", "-lpthread", "-lX11", "-lXinerama", "-lXft", "-lfontconfig"};
+const char *ldflags[] = {"-lm", "-ldl", "-lpthread", "-lX11", "-lXinerama", "-lXft", "-lfontconfig", "-linput", "-ludev"};
 const int nldflags = sizeof ldflags / sizeof ldflags[0];
 
 const char *srcs[] = {

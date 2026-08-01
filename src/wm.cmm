@@ -38,6 +38,12 @@ static fontnames: []*const char = {
 #define DEFAULT_REFRESHRATE    120
 #define TITLE_MAX_CHARS        64
 
+#define SCROLL_STEP            300
+#define SCROLL_MIN_WIDTH       200
+#define SCROLL_VERTICAL_RATIO  0.75
+#define SCROLL_VERTICAL_BIAS    8.0
+#define SCROLL_SENSITIVITY     0.5
+
 static border_px      := BORDER_PX;
 static resizehints    := DEFAULT_RESIZEHINTS;       /* 1 = respect size hints for tiled windows */
 static lockfullscreen := DEFAULT_LOCKFULLSCREEN;    /* 1 = prevent focus change from fullscreen */
@@ -160,11 +166,22 @@ static tagmon                   : (s: *WMState, arg: *const Arg) void;
 static tile                     : (s: *WMState, m: *Monitor) void;
 static monocle                  : (s: *WMState, m: *Monitor) void;
 static floating                 : (s: *WMState, m: *Monitor) void;
+static scroll                   : (s: *WMState, m: *Monitor) void;
+static scrollleft               : (s: *WMState, arg: *const Arg) void;
+static scrollright              : (s: *WMState, arg: *const Arg) void;
+static scrollclamp              : (s: *WMState, m: *Monitor) void;
+static scrollwidth              : (s: *WMState, m: *Monitor) int;
+static scrollensurevisible      : (s: *WMState, m: *Monitor, c: *Client) void;
+static scrollapplygesture       : (s: *WMState) void;
+static tagindex                 : (tag: unsigned int) int;
+static seltag_index             : (m: *Monitor) int;
+static rewm_drain_gesture_commands : (s: *WMState) void;
 
 static layouts: []Layout = {
     { "[T]",  tile },
     { "[M]",  monocle },
     { "[F]",  floating },
+    { "[S]",  scroll },
 };
 #define LAYOUT_COUNT ((int)(sizeof(layouts)/sizeof(layouts[0])))
 #define KEY_COUNT ((int)(sizeof(keys)/sizeof(keys[0])))
@@ -220,6 +237,9 @@ static keys: []Key = {
     { MODKEY,                XK_t,      setlayout,      {.i = 0} },
     { MODKEY,                XK_m,      setlayout,      {.i = 1} },
     { MODKEY,                XK_f,      setlayout,      {.i = 2} },
+    { MODKEY,                XK_s,      setlayout,      {.i = 3} },
+    { MODKEY,                XK_Left,   scrollleft,     {.i = SCROLL_STEP} },
+    { MODKEY,                XK_Right,  scrollright,    {.i = SCROLL_STEP} },
     { MODKEY,                XK_z,      togglefloating, {0} },
     { MODKEY,                XK_u,      togglefullscreen,{0} },
     { MODKEY|ShiftMask,      XK_f,      togglefullscreen,{0} },
@@ -807,6 +827,17 @@ static isvisible: (m: *Monitor, c: *Client) int {
     return c.issticky || (c.tags & m.tagset[m.seltags]) != 0;
 }
 
+static tagindex: (tag: unsigned int) int {
+    for i := 0; i < 9; i++; {
+        if (tag & (1u << i)) return i;
+    }
+    return 0;
+}
+
+static seltag_index: (m: *Monitor) int {
+    return tagindex(m.tagset[m.seltags]);
+}
+
 static showhide: (s: *WMState, c: *Client) void {
     if !c return;
     if isvisible(c.mon, c) {
@@ -1265,6 +1296,9 @@ static createclient: (s: *WMState, w: Window, wa: *XWindowAttributes) *Client {
         s.sel = c;
     }
     arrange(s, c.mon);
+    if (layouts[s.selmon.sellt].arrange == scroll)
+        scrollensurevisible(s, s.selmon, c);
+    arrange(s, c.mon);
     drawbars(s);
     XMapWindow(s.dpy, w);
     #ifdef FOLLOW_WINDOW_RULE
@@ -1653,6 +1687,116 @@ static floating: (s: *WMState, m: *Monitor) void {
     }
 }
 
+static scrollwidth: (s: *WMState, m: *Monitor) int {
+    (void)s;
+    n := 0;
+    for c := m.clients; c; c = c.next; {
+        if isvisible(m, c) && !c.isfloating && !c.isfullscreen && !c.issticky
+            n++;
+    }
+    if n <= 0 return 0;
+    gap := m.gappx > 0 ? m.gappx : 0;
+    viewport := m.ww - 2 * gap;
+    if viewport < 2 * gap return 2 * gap;
+    col := (viewport - gap) / 2;
+    if col < SCROLL_MIN_WIDTH col = SCROLL_MIN_WIDTH;
+    return 2 * gap + n * col + (n - 1) * gap;
+}
+
+static scrollclamp: (s: *WMState, m: *Monitor) void {
+    (void)s;
+    total := scrollwidth(s, m);
+    if total <= 0 || total <= m.ww {
+        m.scroll_x = 0;
+        return;
+    }
+    max_scroll := -(total - m.ww);
+    if m.scroll_x > 0 m.scroll_x = 0;
+    if m.scroll_x < max_scroll m.scroll_x = max_scroll;
+}
+
+static scroll: (s: *WMState, m: *Monitor) void {
+    gap := m.gappx > 0 ? m.gappx : 0;
+    viewport := m.ww - 2 * gap;
+    if viewport < 2 * gap viewport = 2 * gap;
+    col := (viewport - gap) / 2;
+    if col < SCROLL_MIN_WIDTH col = SCROLL_MIN_WIDTH;
+    client_h := m.wh - 2 * gap;
+    if client_h < 1 client_h = 1;
+
+    scrollclamp(s, m);
+
+    i := 0;
+    for c := m.clients; c; c = c.next; {
+        if !isvisible(m, c) || c.isfloating || c.isfullscreen || c.issticky
+            continue;
+        x := m.wx + gap + m.scroll_x + i * (col + gap);
+        resize(s, c, x, m.wy + gap, col - 2 * c.bw, client_h - 2 * c.bw, 0);
+        i++;
+    }
+}
+
+static scrollensurevisible: (s: *WMState, m: *Monitor, c: *Client) void {
+    if !c || !isvisible(m, c) || c.isfloating || c.isfullscreen || c.issticky
+        return;
+    gap := m.gappx > 0 ? m.gappx : 0;
+    viewport := m.ww - 2 * gap;
+    if viewport < 2 * gap viewport = 2 * gap;
+    col := (viewport - gap) / 2;
+    if col < SCROLL_MIN_WIDTH col = SCROLL_MIN_WIDTH;
+    i := 0;
+    target: *Client = NULL;
+    for cl := m.clients; cl; cl = cl.next; {
+        if !isvisible(m, cl) || cl.isfloating || cl.isfullscreen || cl.issticky
+            continue;
+        if cl == c { target = cl; break; }
+        i++;
+    }
+    if !target return;
+
+    left := m.wx + gap + m.scroll_x + i * (col + gap);
+    right := left + col;
+    bound_left := m.wx + gap;
+    bound_right := m.wx + m.ww - gap;
+    if left < bound_left
+        m.scroll_x += bound_left - left;
+    else if right > bound_right
+        m.scroll_x -= right - bound_right;
+    scrollclamp(s, m);
+}
+
+static scrollleft: (s: *WMState, arg: *const Arg) void {
+    if layouts[s.selmon.sellt].arrange != scroll return;
+    s.selmon.scroll_x += arg.i;
+    scrollclamp(s, s.selmon);
+    s.selmon.scroll_x_per_tag[seltag_index(s.selmon)] = s.selmon.scroll_x;
+    arrange(s, s.selmon);
+}
+
+static scrollright: (s: *WMState, arg: *const Arg) void {
+    if layouts[s.selmon.sellt].arrange != scroll return;
+    s.selmon.scroll_x -= arg.i;
+    scrollclamp(s, s.selmon);
+    s.selmon.scroll_x_per_tag[seltag_index(s.selmon)] = s.selmon.scroll_x;
+    arrange(s, s.selmon);
+}
+
+static scrollapplygesture: (s: *WMState) void {
+    if !s.gesture_backend_ready return;
+    m := s.selmon;
+    if !m || layouts[m.sellt].arrange != scroll return;
+    if s.gesture_accum == 0 return;
+    m.scroll_x -= s.gesture_accum;
+    s.gesture_accum = 0;
+    scrollclamp(s, m);
+    m.scroll_x_per_tag[seltag_index(m)] = m.scroll_x;
+    arrange(s, m);
+}
+
+static rewm_drain_gesture_commands: (s: *WMState) void {
+    scrollapplygesture(s);
+}
+
 static arrangemon: (s: *WMState, m: *Monitor) void {
     strncpy(m.ltsymbol, layouts[m.sellt].symbol, sizeof(m.ltsymbol) - 1);
     if (layouts[m.sellt].arrange) layouts[m.sellt].arrange(s, m);
@@ -1697,7 +1841,12 @@ static void focusstack(WMState *s, const Arg *arg) {
     }
     if c {
         focus(s, c);
-        restack(s, s.selmon);
+        if (layouts[s.selmon.sellt].arrange == scroll) {
+            scrollensurevisible(s, s.selmon, c);
+            arrange(s, s.selmon);
+        } else {
+            restack(s, s.selmon);
+        }
     }
 }
 
@@ -1724,12 +1873,17 @@ static zoom: (s: *WMState, arg: *const Arg) void {
     attach(s, c);
     focus(s, c);
     arrange(s, c.mon);
+    if (layouts[s.selmon.sellt].arrange == scroll)
+        scrollensurevisible(s, s.selmon, c);
+    arrange(s, c.mon);
 }
 
 static view: (s: *WMState, arg: *const Arg) void {
     if ((arg.ui & TAGMASK) == s.selmon.tagset[s.selmon.seltags]) return;
+    s.selmon.scroll_x_per_tag[seltag_index(s.selmon)] = s.selmon.scroll_x;
     s.selmon.seltags ^= 1;
     if (arg.ui & TAGMASK) s.selmon.tagset[s.selmon.seltags] = arg.ui & TAGMASK;
+    s.selmon.scroll_x = s.selmon.scroll_x_per_tag[seltag_index(s.selmon)];
     focus(s, NULL);
     arrange(s, s.selmon);
 }
@@ -1737,7 +1891,9 @@ static view: (s: *WMState, arg: *const Arg) void {
 static toggleview: (s: *WMState, arg: *const Arg) void {
     newtags: unsigned int = s.selmon.tagset[s.selmon.seltags] ^ (arg.ui & TAGMASK);
     if (!newtags) return;
+    s.selmon.scroll_x_per_tag[seltag_index(s.selmon)] = s.selmon.scroll_x;
     s.selmon.tagset[s.selmon.seltags] = newtags;
+    s.selmon.scroll_x = s.selmon.scroll_x_per_tag[seltag_index(s.selmon)];
     focus(s, NULL);
     arrange(s, s.selmon);
 }
@@ -1745,6 +1901,7 @@ static toggleview: (s: *WMState, arg: *const Arg) void {
 static tagclient: (s: *WMState, arg: *const Arg) void {
     if (!s.sel || !(arg.ui & TAGMASK)) return;
     s.sel.tags = arg.ui & TAGMASK;
+    s.selmon.scroll_x_per_tag[seltag_index(s.selmon)] = s.selmon.scroll_x;
     focus(s, NULL);
     arrange(s, s.selmon);
 }
@@ -1754,6 +1911,7 @@ static toggletag: (s: *WMState, arg: *const Arg) void {
     newtags: unsigned int = s.sel.tags ^ (arg.ui & TAGMASK);
     if (!newtags) return;
     s.sel.tags = newtags;
+    s.selmon.scroll_x_per_tag[seltag_index(s.selmon)] = s.selmon.scroll_x;
     focus(s, NULL);
     arrange(s, s.selmon);
 }

@@ -6,6 +6,8 @@
 #include <X11/extensions/Xinerama.h>
 #include <X11/Xft/Xft.h>
 #include <time.h>
+#include <pthread.h>
+#include <stdint.h>
 
 #define LENGTH(x)       (sizeof(x) / sizeof(x[0]))
 #define MAX(a, b)       ((a) > (b) ? (a) : (b))
@@ -70,6 +72,8 @@ struct Monitor {
     Monitor *next;
     Window barwin;
     int barfocused;             /* -1 = unset, else last WM_NAME state we wrote (0/1) */
+    int scroll_x;               /* current horizontal scrolling strip offset */
+    int scroll_x_per_tag[9];    /* saved scroll offset per tag/workspace */
 };
 
 typedef struct {
@@ -129,6 +133,14 @@ struct WMState {
     /* urgent tag flash */
     int urgent_flash_on;
     long last_flash_ms;
+
+    /* gesture backend */
+    pthread_t gesture_thread;
+    int gesture_thread_running;
+    int gesture_stop_pipe[2];
+    int gesture_event_pipe[2];
+    int gesture_backend_ready;
+    int gesture_accum;
 };
 
 #endif /* WM_H */
