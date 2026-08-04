@@ -22,8 +22,8 @@
 #define LAUNCHER          "tmenu_runner"
 #define TAGMASK           ((1 << 9) - 1)
 static fontnames: []*const char = {
-//    "CMMonoRomanMing:size=12",
-    "New Heterodox Mono:size=12",
+    "New Heterodox Mono:size=11.5",
+    "NewComputerModern:size=11",
 };
 
 #define URGENT_FLASH_MS        600     // in ms

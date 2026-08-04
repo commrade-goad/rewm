@@ -1,9 +1,10 @@
-#define COL_NORM_BG       "#000000"
-#define COL_NORM_FG       "#E2C5C6"
-#define COL_NORM_BORDER   "#462F30"
-#define COL_SEL_BG        "#DD95BB"
-#define COL_SEL_FG        "#000000"
-#define COL_SEL_BORDER    "#DD95BB"
+#define COL_NORM_BG       "#F9D4DA"
+#define COL_NORM_FG       "#191516"
+// #define COL_NORM_BORDER   "#D06C7E"
+#define COL_NORM_BORDER   "#F9D4DA"
+#define COL_SEL_BG        "#AE5A69"
+#define COL_SEL_FG        "#F9D4DA"
+#define COL_SEL_BORDER    "#AE5A69"
 
 #define OPAQUE            0xffU
 static const unsigned int baralpha    = OPAQUE;
