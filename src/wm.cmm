@@ -1399,7 +1399,7 @@ static enternotify: (s: *WMState, e: *XEvent) void {
     if ((ev.mode != NotifyNormal || ev.detail == NotifyInferior) &&
         ev.window != s.root)
     {
-            return;
+        return;
     }
     c := wintoclient(s, ev.window);
     m := c ? c.mon : wintomon(s, ev.window);
@@ -1732,6 +1732,9 @@ static view: (s: *WMState, arg: *const Arg) void {
     if (arg.ui & TAGMASK) s.selmon.tagset[s.selmon.seltags] = arg.ui & TAGMASK;
     focus(s, NULL);
     arrange(s, s.selmon);
+    ev: XEvent;
+    XSync(s.dpy, False);
+    while XCheckMaskEvent(s.dpy, EnterWindowMask, &ev);
 }
 
 static toggleview: (s: *WMState, arg: *const Arg) void {
@@ -1948,6 +1951,7 @@ static movemouse: (s: *WMState, arg: *const Arg) void {
         }
     } while ev.type != ButtonRelease;
     XUngrabPointer(s.dpy, CurrentTime);
+    while (XCheckMaskEvent(s.dpy, EnterWindowMask, &ev));
     m := recttomon(s, c.x, c.y, c.w, c.h);
     if m != s.selmon {
         sendmon(s, c, m);
@@ -1967,7 +1971,7 @@ static resizemouse: (s: *WMState, arg: *const Arg) void {
                      GrabModeAsync, GrabModeAsync, None, s.cur_resize, CurrentTime) != GrabSuccess)
         return;
 
-    XWarpPointer(s.dpy, None, c.win, 0, 0, 0, 0, c.w - 1, c.h - 1);
+    XWarpPointer(s.dpy, None, c.win, 0, 0, 0, 0, c.w + c.bw - 1, c.h + c.bw - 1);
     ev: XEvent;
     do {
         XMaskEvent(s.dpy, ButtonPressMask | ButtonReleaseMask | PointerMotionMask | ExposureMask | SubstructureRedirectMask, &ev);
@@ -1976,8 +1980,8 @@ static resizemouse: (s: *WMState, arg: *const Arg) void {
             if ((ev.xmotion.time - last_time) <= (1000 / refreshrate)) continue;
             last_time = ev.xmotion.time;
 
-            nw := MAX(ev.xmotion.x - c.x + 1, 1);
-            nh := MAX(ev.xmotion.y - c.y + 1, 1);
+            nw := MAX(ev.xmotion.x - c.x - 2 * c.bw + 1, 1);
+            nh := MAX(ev.xmotion.y - c.y - 2 * c.bw + 1, 1);
             if !c.isfloating && layouts[s.selmon.sellt].arrange != floating
                && (abs(nw - c.w) > SNAP_REGION || abs(nh - c.h) > SNAP_REGION) {
                 c.isfloating = 1;
@@ -1991,8 +1995,9 @@ static resizemouse: (s: *WMState, arg: *const Arg) void {
             maprequest(s, &ev);
         }
     } while ev.type != ButtonRelease;
-    XWarpPointer(s.dpy, None, c.win, 0, 0, 0, 0, c.w - 1, c.h - 1);
+    XWarpPointer(s.dpy, None, c.win, 0, 0, 0, 0, c.w + c.bw - 1, c.h + c.bw - 1);
     XUngrabPointer(s.dpy, CurrentTime);
+    while (XCheckMaskEvent(s.dpy, EnterWindowMask, &ev));
     m := recttomon(s, c.x, c.y, c.w, c.h);
     if m != s.selmon {
         sendmon(s, c, m);
